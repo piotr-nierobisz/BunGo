@@ -1,0 +1,28 @@
+# BunGo (Bundler 4 Go) - Framework Rules and Context
+
+## 1. Project Motivation & Philosophy
+BunGo is a lightweight, high-performance idiomatic Go web framework and asset bundler. It allows developers to write Go server logic and React (JSX) views in the same repository, seamlessly binding them together without Node.js, npm, or complex external build pipelines.
+
+## 2. AI Agent Directive (CRITICAL)
+**All AI agents working on this project MUST continuously keep this `.cursorrules` file updated with the most up-to-date, comprehensive understanding of the framework's architecture, conventions, and guidelines. If you introduce a structural change, a new standard, or modify a core behaviour, you must update this file immediately to reflect it.**
+
+## 3. Core Architectural Boundaries (CRITICAL)
+* **Embedded Bundling & React:** BunGo embeds `esbuild` directly via its Go API (`github.com/evanw/esbuild/pkg/api`). Furthermore, BunGo **embeds React and React-DOM directly into the Go binary** using `//go:embed` inside `internal/builder/vendor/`. We use an esbuild plugin to intercept `import "react"` and `import "react-dom/client"` statements and feed it the embedded source.
+* **No Node.js / NPM:** Never generate `package.json`, `node_modules`, or npm commands.
+* **No Business Logic:** The framework is strictly infrastructure. It routes requests, applies security layers, compiles JSX, and renders templates. It must NEVER import database drivers or user-specific models.
+* **Fail-Fast Asset Validation:** The server strictly requires the provided `webDir` and its `layouts/` and `views/` subdirectories to exist at boot. It will immediately `panic()` if they are missing or if a registered page requests a missing template/layout/view file. If a Layout (per-route or `DefaultLayout`) is specified, that layout file must exist.
+* **Template vs Layout:** `Template` is always required—the page-specific `.gohtml` file in `layouts/`. `Layout` is optional and enables Go template composition: a wrapper template (e.g., `base.gohtml`) defines `{{block "content" .}}`; the Template fills it with `{{define "content"}}...{{end}}`, avoiding repeated `<html><head><body>` boilerplate. `Server.DefaultLayout` sets a global layout for all pages that do not specify their own.
+* **Automated Template Injection:** `RenderTemplate` injects `window.__BUNGO_DATA__` and the compiled JSX bundle automatically. When no Layout is used: scripts go before `</head>` or `</body>`. When a Layout is used: scripts are injected into the layout. Developers must NOT manually place these script tags in their views.
+* **Agnostic Handlers & Rendering:** 
+  - Page Handler signature: `func(req *bungo.Request) (map[string]any, error)`
+  - API Handler signature: `func(req *bungo.Request) (bungo.APIResponse, error)`
+  - The internal `RenderTemplate` returns formatted HTML entirely agnostic of the Server environment. Adapters (e.g., `HTTPEngine`) are responsible for passing this to an `http.ResponseWriter` or corresponding vendor boundary.
+* **Configuration Structs:** Use pass-by-value for configuration structs (e.g., `PageRoute`, `ApiRoute`, `SecurityLayer`) during server initialization.
+
+## 4. Core Terminology
+* **`Server`**: The central registry. Holds routing maps, security layers, and delegates listening to the `Engine`.
+* **`Engine`**: An interface (`Invoker`) representing the execution environment. Translates incoming events (e.g., standard `net/http` or AWS Lambda) into a generic `bungo.Request`.
+* **`Request`**: Framework-agnostic HTTP request representation containing Headers, GET/POST Params, Body (raw bytes or parsed interface), and an `Internal` map for passing context (like JWT claims) between Security Layers and Handlers.
+* **`APIResponse`**: Contains an HTTP `StatusCode` (int) and a `Body` (any) to be marshaled to JSON.
+* **`Template`**: The required page-specific `.gohtml` file in `layouts/`. Defines page content, optionally with `{{define "content"}}` when using Layout composition.
+* **`Layout`**: Optional wrapper template in `layouts/` that defines `{{block "content" .}}`. Used for composition to avoid repeating `<html><head><body>` in every template.

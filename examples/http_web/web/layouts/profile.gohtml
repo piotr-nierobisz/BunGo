@@ -1,0 +1,10 @@
+{{define "title"}}User Profile{{end}}
+{{define "content"}}
+<div class="card">
+    <h2>Your Profile Settings</h2>
+    <p><strong>Username:</strong> {{.Username}}</p>
+    <p><strong>Role:</strong> {{.Role}}</p>
+    <p class="muted">This page uses only Go html/templates (no React). Same base layout as the rest of the app.</p>
+    <a href="/" class="btn secondary">Back to Home</a>
+</div>
+{{end}}

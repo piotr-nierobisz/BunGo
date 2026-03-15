@@ -1,0 +1,11 @@
+{{define "title"}}Welcome to BunGo{{end}}
+{{define "content"}}
+<div class="card" style="text-align: center; padding: 2.5rem;">
+    <h1 style="font-size: 2rem; margin-bottom: 0.5rem;">{{.HeroTitle}}</h1>
+    <p class="muted" style="font-size: 1.1rem; margin-bottom: 1.5rem;">{{.HeroSubtitle}}</p>
+    <a href="/dashboard" class="btn">Go to Dashboard</a>
+    <a href="/profile" class="btn secondary" style="margin-left: 0.5rem;">My Profile</a>
+    <hr>
+    <div id="root"></div>
+</div>
+{{end}}

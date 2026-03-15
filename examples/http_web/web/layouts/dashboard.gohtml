@@ -1,0 +1,13 @@
+{{define "title"}}{{.Title}}{{end}}
+{{define "content"}}
+<div class="card">
+    <h1>Welcome to BunGo</h1>
+    <p class="muted">This section is rendered by Go HTML templates with data from the handler:</p>
+    <ul>
+        <li>Message: <strong>{{.UserMessage}}</strong></li>
+        <li>Time: <strong>{{.ServerTime}}</strong></li>
+    </ul>
+    <hr>
+    <div id="root"></div>
+</div>
+{{end}}
