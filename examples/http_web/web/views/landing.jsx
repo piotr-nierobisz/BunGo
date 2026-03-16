@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { createRoot } from "react-dom/client";
 
 // Example: React component embedded in a Go-rendered page. Styling matches base layout (dark theme).
 function LandingInteractive() {
@@ -26,8 +25,4 @@ function LandingInteractive() {
     );
 }
 
-const rootElement = document.getElementById("root");
-if (rootElement) {
-    const root = createRoot(rootElement);
-    root.render(<LandingInteractive />);
-}
+_bungoRender(LandingInteractive);

@@ -67,5 +67,35 @@ var ReactPlugin = api.Plugin{
 					Loader:   api.LoaderJS,
 				}, nil
 			})
+
+		// bungo/render: provides _bungoRender(Component, elementId?) so views don't need createRoot boilerplate.
+		// elementId defaults to "root" (React convention) when omitted.
+		build.OnResolve(api.OnResolveOptions{Filter: `^bungo/render$`},
+			func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+				return api.OnResolveResult{
+					Path:      "bungo/render",
+					Namespace: "bungo-render-ns",
+				}, nil
+			})
+
+		bungoRenderJS := `import React from "react";
+import { createRoot } from "react-dom";
+
+export function _bungoRender(Component, elementId) {
+  const id = elementId == null ? "root" : elementId;
+  const el = document.getElementById(id);
+  if (el) {
+    const root = createRoot(el);
+    root.render(React.createElement(Component));
+  }
+}
+`
+		build.OnLoad(api.OnLoadOptions{Filter: `^bungo/render$`, Namespace: "bungo-render-ns"},
+			func(args api.OnLoadArgs) (api.OnLoadResult, error) {
+				return api.OnLoadResult{
+					Contents: &bungoRenderJS,
+					Loader:   api.LoaderJS,
+				}, nil
+			})
 	},
 }

@@ -1,5 +1,4 @@
 import React from "react";
-import { createRoot } from "react-dom/client";
 
 // Dashboard React app: reads server data from window.__BUNGO_DATA__ (injected by BunGo).
 function Dashboard() {
@@ -44,8 +43,4 @@ function Dashboard() {
     );
 }
 
-const rootElement = document.getElementById("root");
-if (rootElement) {
-    const root = createRoot(rootElement);
-    root.render(<Dashboard />);
-}
+_bungoRender(Dashboard);

@@ -37,6 +37,7 @@ func main() {
 		Template: "landing.gohtml",
 		View:     "landing.jsx",
 		Handler: func(req *bungo.Request) (map[string]any, error) {
+			// Vendor-agnostic business logic goes here.
 			return map[string]any{
 				"HeroTitle":    "Welcome to BunGo",
 				"HeroSubtitle": "The blazing fast embedded React framework for Go.",
@@ -50,6 +51,7 @@ func main() {
 		View:          "dashboard.jsx",
 		SecurityLayer: []string{"check_jwt_token"},
 		Handler: func(req *bungo.Request) (map[string]any, error) {
+			// Vendor-agnostic business logic goes here.
 			return map[string]any{
 				"Title":       "BunGo Dashboard",
 				"UserMessage": "Hello from the Go backend! You are authenticated.",
@@ -63,6 +65,7 @@ func main() {
 		Template:      "profile.gohtml",
 		SecurityLayer: []string{"check_jwt_token"},
 		Handler: func(req *bungo.Request) (map[string]any, error) {
+			// Vendor-agnostic business logic goes here.
 			return map[string]any{
 				"Username": "jdoe_secure",
 				"Role":     "Administrator",
