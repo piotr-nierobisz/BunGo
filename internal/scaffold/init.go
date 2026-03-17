@@ -149,10 +149,9 @@ func main() {
 	})
 
 	srv.Page(bungo.PageRoute{
-		Path:          "/",
-		Template:      "home.gohtml",
-		View:          "%s",
-		SecurityLayer: []string{"require-demo-token"},
+		Path:     "/",
+		Template: "home.gohtml",
+		View:     "%s",
 		Handler: func(req *bungo.Request) (map[string]any, error) {
 			return map[string]any{
 				"PageTitle": "Welcome to BunGo",
@@ -170,9 +169,10 @@ func main() {
 	})
 
 	srv.Api(bungo.ApiRoute{
-		Path:    "/showcase",
-		Version: "v1",
-		Method:  "GET",
+		Path:          "/showcase",
+		Version:       "v1",
+		Method:        "GET",
+		SecurityLayer: []string{"require-demo-token"},
 		Handler: func(req *bungo.Request) (bungo.APIResponse, error) {
 			return bungo.APIResponse{
 				StatusCode: 200,
@@ -190,7 +190,7 @@ func main() {
 	}
 }
 `
-	jsxViewFile = `import React, { useState, useEffect } from "react";
+	jsxViewFile = `import React, { useState, useEffect, useRef } from "react";
 import { format } from "https://esm.sh/date-fns@3.6.0";
 
 function ShowcaseApp() {
@@ -200,12 +200,14 @@ function ShowcaseApp() {
   const [apiLoading, setApiLoading] = useState(true);
   const [apiError, setApiError] = useState(null);
   const [items, setItems] = useState(function () {
-    return Array.isArray(data.Features) ? [...data.Features] : ["First item"];
+    var raw = Array.isArray(data.Features) ? data.Features : ["First item"];
+    return raw.map(function (text, i) { return { id: i, text: String(text) }; });
   });
+  const nextIdRef = useRef(items.length);
   const [inputValue, setInputValue] = useState("");
 
   useEffect(function () {
-    fetch("/api/v1/showcase")
+    fetch("/api/v1/showcase", { headers: { "Authorization": "Bearer demo-token" } })
       .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error("HTTP " + res.status)); })
       .then(function (body) { setApiResult(body); setApiError(null); })
       .catch(function (err) { setApiError(err.message); setApiResult(null); })
@@ -215,12 +217,13 @@ function ShowcaseApp() {
   function addItem() {
     var text = inputValue.trim();
     if (!text) return;
-    setItems(function (prev) { return [...prev, text]; });
+    var id = nextIdRef.current++;
+    setItems(function (prev) { return prev.concat([{ id: id, text: text }]); });
     setInputValue("");
   }
 
-  function removeItem(index) {
-    setItems(function (prev) { return prev.filter(function (_, i) { return i !== index; }); });
+  function removeItem(id) {
+    setItems(function (prev) { return prev.filter(function (it) { return it.id !== id; }); });
   }
 
   var generatedAt = data.GeneratedAt
@@ -258,11 +261,11 @@ function ShowcaseApp() {
           <button type="button" className="btn" onClick={addItem}>Add</button>
         </div>
         <ul style={{ margin: 0, paddingLeft: "1.25rem" }}>
-          {items.map(function (item, i) {
+          {items.map(function (it) {
             return (
-              <li key={i} style={{ marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span>{item}</span>
-                <button type="button" className="btn secondary" style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem" }} onClick={function () { removeItem(i); }}>Remove</button>
+              <li key={it.id} style={{ marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span>{it.text}</span>
+                <button type="button" className="btn secondary" style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem" }} onClick={function () { removeItem(it.id); }}>Remove</button>
               </li>
             );
           })}
@@ -274,7 +277,7 @@ function ShowcaseApp() {
 
 _bungoRender(ShowcaseApp);
 `
-	tsxViewFile = `import React, { useState, useEffect } from "react";
+	tsxViewFile = `import React, { useState, useEffect, useRef } from "react";
 import { format } from "https://esm.sh/date-fns@3.6.0";
 
 type ShowcaseData = {
@@ -285,19 +288,23 @@ type ShowcaseData = {
 
 type ApiResponse = { message?: string; ok?: boolean } | null;
 
+type ListItem = { id: number; text: string };
+
 function ShowcaseApp() {
   const data = useBungoData() as ShowcaseData;
   const [count, setCount] = useState<number>(data.CounterStart ?? 0);
   const [apiResult, setApiResult] = useState<ApiResponse>(null);
   const [apiLoading, setApiLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [items, setItems] = useState<string[]>(() =>
-    Array.isArray(data.Features) ? [...data.Features] : ["First item"]
-  );
+  const [items, setItems] = useState<ListItem[]>(() => {
+    const raw = Array.isArray(data.Features) ? data.Features : ["First item"];
+    return raw.map((text, i) => ({ id: i, text: String(text) }));
+  });
+  const nextIdRef = useRef(items.length);
   const [inputValue, setInputValue] = useState("");
 
   useEffect(() => {
-    fetch("/api/v1/showcase")
+    fetch("/api/v1/showcase", { headers: { "Authorization": "Bearer demo-token" } })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error("HTTP " + res.status))))
       .then((body: ApiResponse) => {
         setApiResult(body);
@@ -313,12 +320,13 @@ function ShowcaseApp() {
   function addItem() {
     const text = inputValue.trim();
     if (!text) return;
-    setItems((prev) => [...prev, text]);
+    const id = nextIdRef.current++;
+    setItems((prev) => prev.concat([{ id, text }]));
     setInputValue("");
   }
 
-  function removeItem(index: number) {
-    setItems((prev) => prev.filter((_, i) => i !== index));
+  function removeItem(id: number) {
+    setItems((prev) => prev.filter((it) => it.id !== id));
   }
 
   const generatedAt = data.GeneratedAt
@@ -356,10 +364,10 @@ function ShowcaseApp() {
           <button type="button" className="btn" onClick={addItem}>Add</button>
         </div>
         <ul style={{ margin: 0, paddingLeft: "1.25rem" }}>
-          {items.map((item, i) => (
-            <li key={i} style={{ marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span>{item}</span>
-              <button type="button" className="btn secondary" style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem" }} onClick={() => removeItem(i)}>Remove</button>
+          {items.map((it) => (
+            <li key={it.id} style={{ marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span>{it.text}</span>
+              <button type="button" className="btn secondary" style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem" }} onClick={() => removeItem(it.id)}>Remove</button>
             </li>
           ))}
         </ul>
