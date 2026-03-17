@@ -1,8 +1,6 @@
 ![BunGo logo](./docs/header.png)
 
-
-
-# BunGo (Bundler 4 Go) 🐇
+# BunGo (Bundler 4 Go)
 **BunGo** is a high-performance, lightweight, and idiomatic Go web framework designed to seamlessly bridge backend Go logic with frontend React (JSX) views. It eliminates the need for Node.js, `npm`, `package.json`, and complex external build pipelines by embedding everything you need right into your Go binary.
 
 If you love the simplicity of Go backends but want the rich interactivity of React without the headache of managing a separate frontend ecosystem, BunGo is the framework for you.
@@ -11,15 +9,34 @@ If you love the simplicity of Go backends but want the rich interactivity of Rea
 
 ## 📦 Installation & project setup
 
-### Install the library
+### Choose your setup path
 
-From your Go module:
+Use **one** of these approaches:
+
+#### Option A: Automatic setup (recommended)
+
+Install the CLI once:
 
 ```bash
-go get github.com/piotr-nierobisz/BunGo
+go install github.com/piotr-nierobisz/BunGo/cmd/bungo@latest
 ```
 
-For a new project, create a module first:
+Create a full BunGo showcase app:
+
+```bash
+bungo init my-project
+cd my-project
+go mod tidy
+go run .
+```
+
+Or create a TypeScript variant:
+
+```bash
+bungo init my-project --typescript
+```
+
+#### Option B: Manual setup
 
 ```bash
 mkdir myapp && cd myapp
@@ -27,30 +44,26 @@ go mod init myapp
 go get github.com/piotr-nierobisz/BunGo
 ```
 
-Optional engines (add only if you use them):
+Then create:
+
+```text
+myapp/
+├── main.go
+└── web/
+    ├── layouts/   # required
+    └── views/     # required
+```
+
+Optional adapters (add only if needed):
 
 ```bash
 go get github.com/piotr-nierobisz/BunGo/engine/gcp   # Google Cloud Functions
 go get github.com/piotr-nierobisz/BunGo/engine/aws   # AWS Lambda
 ```
 
-### Set up the project
+If you choose manual setup, add at least one template in `web/layouts/` and one view entry in `web/views/`, then follow the quick start below.
 
-1. **Create the web directory** and required subdirectories next to your `main.go` (or wherever you pass as `webDir`):
-
-   ```text
-   your-app/
-   ├── main.go
-   └── web/
-       ├── layouts/   # required
-       └── views/     # required
-   ```
-
-2. **Add at least one layout file** in `web/layouts/` (e.g. `index.gohtml`). This is the page template that BunGo will render for the routes you register.
-
-3. **In your code**, create an engine, pass the path to `web` (e.g. `"./web"`), and call `srv.Serve(port)` as shown in the Quick Start below.
-
-The server will **panic at startup** if `webDir`, `web/layouts/`, or `web/views/` are missing, so you get immediate feedback if the layout is wrong.
+The server will **panic at startup** if `webDir`, `web/layouts/`, or `web/views/` are missing.
 
 ---
 
@@ -65,14 +78,14 @@ your-app/
     ├── layouts/        <-- Contains Go HTML templates (.gohtml)
     │   ├── base.gohtml
     │   └── index.gohtml
-    ├── views/          <-- Contains React JSX components (.jsx)
+    ├── views/          <-- Contains React components (.jsx/.tsx)
     │   └── loader.jsx
     └── static/         <-- (Optional) Standard static assets served directly
         └── logo.png
 ```
 
 - **`layouts/`**: Where standard `html/template` files live. A `Template` is your page content, while an optional `Layout` acts as a wrapper.
-- **`views/`**: Where your React modules live. BunGo compiles these on the fly as entry points and injects them into the respective templates.
+- **`views/`**: Where your React modules live (`.jsx`, `.tsx`, `.js`, `.ts`). BunGo compiles these on the fly as entry points and injects them into the respective templates.
 
 ---
 
@@ -89,7 +102,7 @@ package main
 
 import (
     "log"
-    bungo "github.com/piotr-nierobisz/BunGo"
+    "github.com/piotr-nierobisz/BunGo"
     "github.com/piotr-nierobisz/BunGo/engine"
 )
 
@@ -116,7 +129,7 @@ Add the engine: `go get github.com/piotr-nierobisz/BunGo/engine/gcp`
 Compared to the standard HTTP setup, only the import and engine creation change:
 
 ```go
-import engine_gcp "github.com/piotr-nierobisz/BunGo/engine/gcp"
+import "github.com/piotr-nierobisz/BunGo/engine/gcp"
 
 // In main():
 gcpEngine := engine_gcp.NewGCPEngine("MyCloudFunction")  // name must match gcloud entry point
@@ -131,7 +144,7 @@ Add the engine: `go get github.com/piotr-nierobisz/BunGo/engine/aws`
 Use API Gateway HTTP API (v2) or Lambda Function URL. Only the import and engine change:
 
 ```go
-import engine_aws "github.com/piotr-nierobisz/BunGo/engine/aws"
+import "github.com/piotr-nierobisz/BunGo/engine/aws"
 
 // In main():
 awsEngine := engine_aws.NewLambdaEngine()
@@ -151,7 +164,7 @@ Pages return an HTML document to the client. BunGo allows you to compose these i
 srv.Page(bungo.PageRoute{
     Path:     "/",
     Template: "index.gohtml", // Required: Maps to web/layouts/index.gohtml
-    View:     "loader.jsx",   // Optional: Maps to web/views/loader.jsx
+    View:     "loader.jsx",   // Optional: Maps to web/views/loader.jsx (or .tsx/.ts/.js)
     
     // The handler executes the backend logic before rendering.
     // The returned map[string]any is injected and accessible in JSX via useBungoData().
@@ -252,9 +265,9 @@ type Request struct {
 
 ## 🎨 Writing React Views
 
-Since BunGo replaces the traditional NPM frontend lifecycle, your JSX files run completely independent of external packagers. BunGo resolves `import "react"` to the server's embedded React and **auto-injects** the render helper.
+Since BunGo replaces the traditional NPM frontend lifecycle, your JSX/TSX files run completely independent of external packagers. BunGo resolves `import "react"` to the server's embedded React and **auto-injects** the render helper.
 
-BunGo also supports Deno-style remote ESM imports directly in your JSX files. You can import modules from `https://...` URLs (for example from `esm.sh`) without adding `package.json` or `node_modules`:
+BunGo also supports Deno-style remote ESM imports directly in JSX/TSX files. You can import modules from `https://...` URLs (for example from `esm.sh`) without adding `package.json` or `node_modules`:
 
 ```jsx
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "https://esm.sh/recharts@2.12.0";
@@ -263,10 +276,10 @@ import { format } from "https://esm.sh/date-fns@3.6.0";
 
 When remote dependencies reference `react`, `react/jsx-runtime`, or `react-dom/client`, BunGo automatically aliases them to the embedded runtime so hooks and context use a single React instance.
 
-For a runnable demo, see `examples/http_remote_imports`:
+To run any included demos make sure you have the latest copy of the BunGo installed and then run:
 
 ```bash
-cd examples/http_remote_imports
+cd examples/<example_name>      # JSX + remote imports
 go run .
 ```
 
@@ -301,8 +314,9 @@ The matching `web/layouts/index.gohtml` simply needs a root div:
 That's it! Save your files, boot your Go binary, and experience high-speed isomorphic development.
 
 
-# TODOs
-- [ ] Add more detailed documentation and examples
-- [ ] Add testing utilities and examples
+## TODOs
+- [ ] Add more detailed documentation
+- [ ] Add unit tests
 - [ ] Cache resolved dependencies for faster startup
-- [ ] Typescript support
+- [x] TypeScript support (`.tsx`/`.ts` views + CLI `--typescript` scaffold)
+- [ ] Production optimizations

@@ -1,10 +1,10 @@
 module github.com/piotr-nierobisz/BunGo/engine/gcp
 
-go 1.23.4
+go 1.25.0
 
 require (
 	github.com/GoogleCloudPlatform/functions-framework-go v1.9.2
-	github.com/piotr-nierobisz/BunGo v0.1.2
+	github.com/piotr-nierobisz/BunGo v0.1.3
 )
 
 require (

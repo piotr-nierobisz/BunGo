@@ -16,8 +16,8 @@ type SecurityLayer struct {
 // <html>, <head>, and <body> in every template. If empty, the Template is rendered
 // as a standalone page.
 //
-// View is optional: the corresponding .jsx entry in views/ to be compiled and
-// injected into the page as a module script.
+// View is optional: the corresponding .jsx/.tsx (or .js/.ts) entry in views/
+// to be compiled and injected into the page as a module script.
 type PageRoute struct {
 	Path          string
 	Template      string
