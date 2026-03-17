@@ -73,7 +73,7 @@ func main() {
 		},
 	})
 
-	if err := srv.Serve(3348); err != nil {
+	if err := srv.Serve(3303); err != nil {
 		panic(err)
 	}
 }

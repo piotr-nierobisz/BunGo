@@ -24,21 +24,23 @@ func NewHTTPEngine() *HTTPEngine {
 	}
 }
 
-// Start creates an http.ServeMux, registers routes, and starts the server
-func (e *HTTPEngine) Start(address string, srv *bungo.Server) error {
+// CreateHandler initializes the http.ServeMux and registers pages and APIs
+func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 	// Compile JSX views
 	compiledMap, err := builder.CompilePages(srv.Pages, srv.WebDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	e.compiledViews = compiledMap
 
 	mux := http.NewServeMux()
 
 	// Serve static assets if "static" directory exists
-	staticDir := filepath.Join(srv.WebDir, "static")
-	if info, err := os.Stat(staticDir); err == nil && info.IsDir() {
-		mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
+	if srv.WebDir != "" {
+		staticDir := filepath.Join(srv.WebDir, "static")
+		if info, err := os.Stat(staticDir); err == nil && info.IsDir() {
+			mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
+		}
 	}
 
 	// Register Pages
@@ -58,7 +60,17 @@ func (e *HTTPEngine) Start(address string, srv *bungo.Server) error {
 		mux.HandleFunc(fullPath, e.createAPIHandler(srv, apiRoute, method))
 	}
 
-	return http.ListenAndServe(address, mux)
+	return mux, nil
+}
+
+// Start creates an http.ServeMux, registers routes, and starts the server
+func (e *HTTPEngine) Start(address string, srv *bungo.Server) error {
+	handler, err := e.CreateHandler(srv)
+	if err != nil {
+		return err
+	}
+
+	return http.ListenAndServe(address, handler)
 }
 
 func (e *HTTPEngine) createAPIHandler(srv *bungo.Server, route bungo.ApiRoute, method string) http.HandlerFunc {
@@ -99,6 +111,11 @@ func (e *HTTPEngine) createAPIHandler(srv *bungo.Server, route bungo.ApiRoute, m
 
 func (e *HTTPEngine) createPageHandler(srv *bungo.Server, route bungo.PageRoute) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
 		breq, err := e.translateRequest(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -174,7 +191,6 @@ func (e *HTTPEngine) translateRequest(r *http.Request) (*bungo.Request, error) {
 			return nil, err
 		}
 		breq.Body = body
-		r.Body.Close()
 	}
 
 	return breq, nil

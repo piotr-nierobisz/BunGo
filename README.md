@@ -1,18 +1,56 @@
-# BunGo (Bundler 4 Go) 🐇
+![BunGo logo](./docs/header.png)
 
+
+
+# BunGo (Bundler 4 Go) 🐇
 **BunGo** is a high-performance, lightweight, and idiomatic Go web framework designed to seamlessly bridge backend Go logic with frontend React (JSX) views. It eliminates the need for Node.js, `npm`, `package.json`, and complex external build pipelines by embedding everything you need right into your Go binary.
 
 If you love the simplicity of Go backends but want the rich interactivity of React without the headache of managing a separate frontend ecosystem, BunGo is the framework for you.
 
 ---
 
-## 🌟 Philosophy & Core Features
+## 📦 Installation & project setup
 
-* **Zero External Dependencies (No Node.js or NPM):** BunGo natively embeds `esbuild` via its Go API, alongside a bundled version of React and React-DOM. This means no `.node_modules`, no messy JavaScript build scripts, and no external Javascript tools to install. JSX compiles on the fly right inside your Go application.
-* **Fail-Fast by Design:** Typos in template names or missing directories shouldn't result in silent runtime errors when an end-user hits a route. BunGo strictly checks for the existence of your views, layouts, and web directories immediately at startup and will instantly `panic()` if something is misconfigured.
-* **Infrastructure Driven, Business Agnostic:** BunGo strictly handles HTTP routing, security enforcement, frontend bundling, and template rendering. It stays entirely out of your database adapters and business logic.
-* **Smart Template Composition:** Use zero-boilerplate standalone HTML templates, or define powerful Go `html/template` layouts to wrap common `<html><head><body>` structures. BunGo handles injecting your React bundles automatically.
-* **Agnostic Execution Environments:** Rather than locking you into `net/http`, BunGo uses an `Engine` interface separating core logic from HTTP transport. Out of the box, you can use the standard `HTTPEngine`, but writing adapters for AWS Lambda, Google Cloud Functions, or custom transports takes minutes.
+### Install the library
+
+From your Go module:
+
+```bash
+go get github.com/piotr-nierobisz/BunGo
+```
+
+For a new project, create a module first:
+
+```bash
+mkdir myapp && cd myapp
+go mod init myapp
+go get github.com/piotr-nierobisz/BunGo
+```
+
+Optional engines (add only if you use them):
+
+```bash
+go get github.com/piotr-nierobisz/BunGo/engine/gcp   # Google Cloud Functions
+go get github.com/piotr-nierobisz/BunGo/engine/aws   # AWS Lambda
+```
+
+### Set up the project
+
+1. **Create the web directory** and required subdirectories next to your `main.go` (or wherever you pass as `webDir`):
+
+   ```text
+   your-app/
+   ├── main.go
+   └── web/
+       ├── layouts/   # required
+       └── views/     # required
+   ```
+
+2. **Add at least one layout file** in `web/layouts/` (e.g. `index.gohtml`). This is the page template that BunGo will render for the routes you register.
+
+3. **In your code**, create an engine, pass the path to `web` (e.g. `"./web"`), and call `srv.Serve(port)` as shown in the Quick Start below.
+
+The server will **panic at startup** if `webDir`, `web/layouts/`, or `web/views/` are missing, so you get immediate feedback if the layout is wrong.
 
 ---
 
@@ -71,6 +109,38 @@ func main() {
 }
 ```
 
+### Google Cloud Functions Adapter
+
+Add the engine: `go get github.com/piotr-nierobisz/BunGo/engine/gcp`
+
+Compared to the standard HTTP setup, only the import and engine creation change:
+
+```go
+import engine_gcp "github.com/piotr-nierobisz/BunGo/engine/gcp"
+
+// In main():
+gcpEngine := engine_gcp.NewGCPEngine("MyCloudFunction")  // name must match gcloud entry point
+srv := bungo.NewServer(gcpEngine, "")
+// ... register routes, then srv.Serve(8080) as usual
+```
+
+### AWS Lambda Adapter
+
+Add the engine: `go get github.com/piotr-nierobisz/BunGo/engine/aws`
+
+Use API Gateway HTTP API (v2) or Lambda Function URL. Only the import and engine change:
+
+```go
+import engine_aws "github.com/piotr-nierobisz/BunGo/engine/aws"
+
+// In main():
+awsEngine := engine_aws.NewLambdaEngine()
+srv := bungo.NewServer(awsEngine, "")
+// ... register routes, then srv.Serve(port) as usual
+```
+
+For local Lambda testing use AWS SAM CLI or Lambda RIE.
+
 ---
 
 ### 2. Registering Page Routes
@@ -94,11 +164,23 @@ srv.Page(bungo.PageRoute{
 })
 ```
 
-#### Understanding Rendering Composition
+#### How templates work
 
-- **Templates:** The page-specific HTML file (e.g., `index.gohtml`). Standalone formats execute directly.
-- **Layouts (Optional):** Define a base structure, like `base.gohtml`. By wrapping your page with a Layout or defining a global one via `srv.SetDefaultLayout("base.gohtml")`, your Template only needs to define `{{define "content"}}...{{end}}`. BunGo places the content into `{{block "content" .}}` in the Layout file.
-- **Automated Script Injection:** You **never** define `<script>` tags for your React bundles manually. BunGo automatically catches the end of the `<head>` or `<body>` tag during template rendering, compiles the JSX defined in the `View` field, embeds it as an inline script, and injects `window.__BUNGO_DATA__` for state hydration. 
+BunGo uses Go’s standard `html/template` for server-side HTML. Each page route specifies a **Template** (a `.gohtml` file in `web/layouts/`) and optionally a **Layout** that wraps it.
+
+- **Template:** The page-specific file (e.g. `index.gohtml`) that holds the content for that route. It is always required.
+- **Layout (optional):** A wrapper file (e.g. `base.gohtml`) that defines the common shell (`<html>`, `<head>`, `<body>`) and a `{{block "content" .}}`. Your template then defines `{{define "content"}}...{{end}}` so BunGo fills that block. Use `Layout` on the route or `srv.SetDefaultLayout("base.gohtml")` so you don’t repeat boilerplate in every template.
+- **Standalone vs layout:** If you don’t set a Layout, the template is executed on its own. If you set one, the layout is executed and the template only provides the `"content"` block.
+
+**Handler data and template binding:** The `map[string]any` returned from the page **Handler** is used in two places:
+
+1. **Server-side (Go templates):** The same map is passed as the template data when rendering the `.gohtml` file. You can use any key in your template with `{{.KeyName}}` or `{{range .Items}}...{{end}}`, etc. So handler data drives both structure and content of the HTML.
+
+2. **Client-side (React):** The same map is serialized to JSON and injected as `window.__BUNGO_DATA__`, so your React view can read it for hydration or initial state.
+
+Example: if your handler returns `map[string]any{"PageTitle": "Welcome", "Items": []string{"a","b"}}`, then in `index.gohtml` you can write `{{.PageTitle}}` and `{{range .Items}}<li>{{.}}</li>{{end}}`, and in JSX you can use `window.__BUNGO_DATA__.PageTitle` and `window.__BUNGO_DATA__.Items`. One handler, one data source, used in both template and view.
+
+- **Automated script injection:** You do **not** add `<script>` tags for the React bundle or for `__BUNGO_DATA__` yourself. BunGo injects them (before `</head>` or `</body>`) when it renders the template.
 
 ---
 

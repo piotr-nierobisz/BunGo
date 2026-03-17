@@ -3,6 +3,11 @@ module github.com/piotr-nierobisz/BunGo/engine/aws
 go 1.23.4
 
 require (
-github.com/piotr-nierobisz/BunGo v0.1.0
-// AWS dependencies...
+	github.com/aws/aws-lambda-go v1.47.0
+	github.com/piotr-nierobisz/BunGo v0.1.1
+)
+
+require (
+	github.com/evanw/esbuild v0.27.4 // indirect
+	golang.org/x/sys v0.28.0 // indirect
 )

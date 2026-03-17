@@ -23,7 +23,7 @@ BunGo is a lightweight, high-performance idiomatic Go web framework and asset bu
 
 ## 4. Core Terminology
 * **`Server`**: The central registry. Holds routing maps, security layers, and delegates listening to the `Engine`.
-* **`Engine`**: An interface (`Invoker`) representing the execution environment. Translates incoming events (e.g., standard `net/http` or AWS Lambda) into a generic `bungo.Request`.
+* **`Engine`**: An interface (`Invoker`) representing the execution environment. Translates incoming events (e.g., standard `net/http` or AWS Lambda) into a generic `bungo.Request`. Available engines: `engine.NewHTTPEngine()` (net/http), `engine_aws.NewLambdaEngine()` (AWS Lambda HTTP API v2 / Function URL), `engine_gcp.NewGCPEngine(name)` (Google Cloud Functions).
 * **`Request`**: Framework-agnostic HTTP request representation containing Headers, GET/POST Params, Body (raw bytes or parsed interface), and an `Internal` map for passing context (like JWT claims) between Security Layers and Handlers.
 * **`APIResponse`**: Contains an HTTP `StatusCode` (int) and a `Body` (any) to be marshaled to JSON.
 * **`Template`**: The required page-specific `.gohtml` file in `layouts/`. Defines page content, optionally with `{{define "content"}}` when using Layout composition.
