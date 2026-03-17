@@ -1,10 +1,10 @@
 import React from "react";
 
-// Dashboard React app: reads server data from window.__BUNGO_DATA__ (injected by BunGo).
+// Dashboard React app: reads server data via useBungoData() (injected by BunGo).
 function Dashboard() {
     const [count, setCount] = React.useState(0);
     const [name, setName] = React.useState("");
-    const { UserMessage, ServerTime } = window.__BUNGO_DATA__ || {};
+    const { UserMessage, ServerTime } = useBungoData();
 
     return (
         <div style={{

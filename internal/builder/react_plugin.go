@@ -81,6 +81,10 @@ var ReactPlugin = api.Plugin{
 		bungoRenderJS := `import React from "react";
 import { createRoot } from "react-dom";
 
+export function useBungoData() {
+  return window.__BUNGO_DATA__ || {};
+}
+
 export function _bungoRender(Component, elementId) {
   const id = elementId == null ? "root" : elementId;
   const el = document.getElementById(id);

@@ -154,7 +154,7 @@ srv.Page(bungo.PageRoute{
     View:     "loader.jsx",   // Optional: Maps to web/views/loader.jsx
     
     // The handler executes the backend logic before rendering.
-    // The returned map[string]any is injected as `window.__BUNGO_DATA__`.
+    // The returned map[string]any is injected and accessible in JSX via useBungoData().
     Handler: func(req *bungo.Request) (map[string]any, error) {
         return map[string]any{
             "PageTitle": "Welcome to BunGo",
@@ -176,9 +176,9 @@ BunGo uses Go’s standard `html/template` for server-side HTML. Each page route
 
 1. **Server-side (Go templates):** The same map is passed as the template data when rendering the `.gohtml` file. You can use any key in your template with `{{.KeyName}}` or `{{range .Items}}...{{end}}`, etc. So handler data drives both structure and content of the HTML.
 
-2. **Client-side (React):** The same map is serialized to JSON and injected as `window.__BUNGO_DATA__`, so your React view can read it for hydration or initial state.
+2. **Client-side (React):** The same map is serialized to JSON and injected into the page, and your JSX can access it through the auto-injected `useBungoData()` helper.
 
-Example: if your handler returns `map[string]any{"PageTitle": "Welcome", "Items": []string{"a","b"}}`, then in `index.gohtml` you can write `{{.PageTitle}}` and `{{range .Items}}<li>{{.}}</li>{{end}}`, and in JSX you can use `window.__BUNGO_DATA__.PageTitle` and `window.__BUNGO_DATA__.Items`. One handler, one data source, used in both template and view.
+Example: if your handler returns `map[string]any{"PageTitle": "Welcome", "Items": []string{"a","b"}}`, then in `index.gohtml` you can write `{{.PageTitle}}` and `{{range .Items}}<li>{{.}}</li>{{end}}`, and in JSX you can use `useBungoData().PageTitle` and `useBungoData().Items`. One handler, one data source, used in both template and view.
 
 - **Automated script injection:** You do **not** add `<script>` tags for the React bundle or for `__BUNGO_DATA__` yourself. BunGo injects them (before `</head>` or `</body>`) when it renders the template.
 
@@ -254,7 +254,23 @@ type Request struct {
 
 Since BunGo replaces the traditional NPM frontend lifecycle, your JSX files run completely independent of external packagers. BunGo resolves `import "react"` to the server's embedded React and **auto-injects** the render helper.
 
-Use **`_bungoRender(Component, elementId?)`** to mount your root component—no import needed. You do not need `react-dom/client` or `createRoot`. If `elementId` is omitted, it defaults to `"root"` (React convention).
+BunGo also supports Deno-style remote ESM imports directly in your JSX files. You can import modules from `https://...` URLs (for example from `esm.sh`) without adding `package.json` or `node_modules`:
+
+```jsx
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "https://esm.sh/recharts@2.12.0";
+import { format } from "https://esm.sh/date-fns@3.6.0";
+```
+
+When remote dependencies reference `react`, `react/jsx-runtime`, or `react-dom/client`, BunGo automatically aliases them to the embedded runtime so hooks and context use a single React instance.
+
+For a runnable demo, see `examples/http_remote_imports`:
+
+```bash
+cd examples/http_remote_imports
+go run .
+```
+
+Use **`_bungoRender(Component, elementId?)`** to mount your root component and **`useBungoData()`** to read server data—no imports needed. You do not need `react-dom/client` or `createRoot`. If `elementId` is omitted, it defaults to `"root"` (React convention).
 
 ```jsx
 // web/views/loader.jsx
@@ -262,7 +278,7 @@ import React from "react";
 
 function App() {
     // Access the data passed from the Go handler!
-    const serverData = window.__BUNGO_DATA__;
+    const serverData = useBungoData();
     
     return (
         <div style={{ padding: "2rem", textAlign: "center" }}>
@@ -283,3 +299,10 @@ The matching `web/layouts/index.gohtml` simply needs a root div:
 ```
 
 That's it! Save your files, boot your Go binary, and experience high-speed isomorphic development.
+
+
+# TODOs
+- [ ] Add more detailed documentation and examples
+- [ ] Add testing utilities and examples
+- [ ] Cache resolved dependencies for faster startup
+- [ ] Typescript support

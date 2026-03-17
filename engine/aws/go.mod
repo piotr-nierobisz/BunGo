@@ -4,7 +4,7 @@ go 1.23.4
 
 require (
 	github.com/aws/aws-lambda-go v1.47.0
-	github.com/piotr-nierobisz/BunGo v0.1.1
+	github.com/piotr-nierobisz/BunGo v0.1.2
 )
 
 require (

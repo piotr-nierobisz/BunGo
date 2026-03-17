@@ -30,7 +30,7 @@ func CompilePages(pages map[string]bungo.PageRoute, webDir string) (map[string]s
 		MinifyWhitespace: true,
 		MinifySyntax:     true,
 		JSX:              api.JSXAutomatic,
-		Plugins:          []api.Plugin{ReactPlugin},
+		Plugins:          []api.Plugin{ReactPlugin, RemoteImportPlugin},
 		Inject:           []string{"bungo/render"}, // Auto-inject _bungoRender so views don't need to import it
 		Outdir:           "/",                      // Used so multiple in-memory outputs can map individually
 	})
