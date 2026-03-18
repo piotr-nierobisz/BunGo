@@ -61,7 +61,24 @@ var ReactPlugin = api.Plugin{
 
 		build.OnLoad(api.OnLoadOptions{Filter: `^react/jsx-runtime$`, Namespace: "react-jsx-ns"},
 			func(args api.OnLoadArgs) (api.OnLoadResult, error) {
-				contents := `export { createElement as jsx, createElement as jsxs, Fragment } from "react";`
+				contents := `import React from "react";
+
+export const Fragment = React.Fragment;
+
+// JSX automatic runtime passes key as a third argument. We need a shim
+// instead of aliasing createElement directly, otherwise key is treated as
+// a child and can render as text nodes (e.g. "0", "1", "2").
+export function jsx(type, props, key) {
+  if (key !== undefined) {
+    const nextProps = props == null ? {} : Object.assign({}, props);
+    nextProps.key = key;
+    return React.createElement(type, nextProps);
+  }
+  return React.createElement(type, props);
+}
+
+export const jsxs = jsx;
+`
 				return api.OnLoadResult{
 					Contents: &contents,
 					Loader:   api.LoaderJS,
