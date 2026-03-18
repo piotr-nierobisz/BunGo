@@ -20,6 +20,9 @@ func buildScriptInjection(data map[string]any, inlineJS string) (injectionStr st
 	if inlineJS != "" {
 		b.WriteString("\n<script type=\"module\">{{.BunGoInlineJS}}</script>\n")
 	}
+	if isDevModeEnabled() {
+		b.WriteString("\n<script>{{.BunGoDevClientJS}}</script>\n")
+	}
 	payload = make(map[string]any)
 	for k, v := range data {
 		payload[k] = v
@@ -31,7 +34,59 @@ func buildScriptInjection(data map[string]any, inlineJS string) (injectionStr st
 	if inlineJS != "" {
 		payload["BunGoInlineJS"] = template.JS(inlineJS)
 	}
+	if isDevModeEnabled() {
+		payload["BunGoDevClientJS"] = template.JS(buildDevClientScript())
+	}
 	return b.String(), payload
+}
+
+func isDevModeEnabled() bool {
+	return os.Getenv("BUNGO_DEV_ENABLED") == "1"
+}
+
+// DevWebSocketPort is the fixed port the bungo CLI listens on for live reload; must match injected client.
+const DevWebSocketPort = 35729
+
+// EmbeddedReactVersion matches the vendored React in internal/builder/vendor/.
+const EmbeddedReactVersion = "18.2.0"
+
+func buildDevClientScript() string {
+	return `(function () {
+  var hadDisconnect = false;
+  var reconnectTimer = null;
+  var ws = null;
+
+  function endpoint() {
+    var protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    return protocol + "://" + window.location.hostname + ":35729/__bungo";
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer !== null) return;
+    reconnectTimer = window.setTimeout(function () {
+      reconnectTimer = null;
+      connect();
+    }, 300);
+  }
+
+  function connect() {
+    ws = new WebSocket(endpoint());
+    ws.onopen = function () {
+      if (hadDisconnect) {
+        window.location.reload();
+      }
+    };
+    ws.onclose = function () {
+      hadDisconnect = true;
+      scheduleReconnect();
+    };
+    ws.onerror = function () {
+      if (ws) ws.close();
+    };
+  }
+
+  connect();
+})();`
 }
 
 // injectScripts inserts the injection string before the first </head> or </body>, or appends if neither is found.

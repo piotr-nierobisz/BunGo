@@ -21,13 +21,15 @@ Install the CLI once:
 go install github.com/piotr-nierobisz/BunGo/cmd/bungo@latest
 ```
 
+CLI and embedded React versions are hardcoded in `cmd/bungo/version.go` (`BunGoCLIVersion`, `EmbeddedReactVersion`); update those constants when you cut a release or upgrade vendored React.
+
 Create a full BunGo showcase app:
 
 ```bash
 bungo init my-project
 cd my-project
 go mod tidy
-go run .
+bungo dev
 ```
 
 Or create a TypeScript variant:
@@ -313,10 +315,33 @@ The matching `web/layouts/index.gohtml` simply needs a root div:
 
 That's it! Save your files, boot your Go binary, and experience high-speed isomorphic development.
 
+---
+
+## 🔁 Developer workflow with `bungo dev`
+
+Use `bungo dev` from your project root to run your BunGo app with built-in live reload:
+
+```bash
+cd my-project
+bungo dev
+# or run a different Go entry package/file:
+bungo dev --entry ./cmd/server
+```
+
+What `bungo dev` does:
+
+- starts your app process with `go run <entry>` (default `.`; configurable via `--entry`)
+- exposes a lightweight websocket endpoint at `/__bungo` on fixed port **35729** (same port the framework injects into pages in dev mode)
+- watches project files (Go + templates + view assets) via `fsnotify` and detects changes
+- on change: debounces burst events, then logs a short reload message, disconnects dev websocket clients, restarts the app process
+- browser client reconnects; after a successful reconnect cycle the page auto-refreshes
+
+This gives a seamless edit-save-refresh loop without manually reloading the browser.
 
 ## TODOs
-- [ ] Add more detailed documentation
+- [ ] Improved documentation / wiki
 - [ ] Add unit tests
 - [ ] Cache resolved dependencies for faster startup
 - [x] TypeScript support (`.tsx`/`.ts` views + CLI `--typescript` scaffold)
 - [ ] Production optimizations
+- [x] Live reload for development (`bungo dev`)
