@@ -7,7 +7,7 @@ const (
 	EmbeddedReactVersion = "18.2.0"
 
 	// ScaffoldGoVersion is the `go` directive written into scaffolded go.mod files.
-	ScaffoldGoVersion = "0.1.7"
+	ScaffoldGoVersion = "1.25.0"
 
 	// CLIVersionUnknown is shown when build info does not expose a module version.
 	CLIVersionUnknown = "unknown"

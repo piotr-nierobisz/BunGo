@@ -52,6 +52,7 @@ func buildDevClientScript() string {
   var hadDisconnect = false;
   var reconnectTimer = null;
   var ws = null;
+  var appReadyPollActive = false;
 
   function endpoint() {
     var protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -67,17 +68,21 @@ func buildDevClientScript() string {
   }
 
   function waitForAppReady() {
-    fetch(window.location.href, { method: "HEAD", cache: "no-store" })
-      .then(function (res) {
-        if (res.ok) {
+    if (appReadyPollActive) return;
+    appReadyPollActive = true;
+    var delayMs = 200;
+    var maxDelayMs = 1500;
+    function tick() {
+      fetch(window.location.href, { method: "GET", cache: "no-store", credentials: "same-origin" })
+        .then(function () {
           window.location.reload();
-        } else {
-          setTimeout(waitForAppReady, 200);
-        }
-      })
-      .catch(function () {
-        setTimeout(waitForAppReady, 200);
-      });
+        })
+        .catch(function () {
+          delayMs = Math.min(Math.floor(delayMs * 1.4), maxDelayMs);
+          window.setTimeout(tick, delayMs);
+        });
+    }
+    tick();
   }
 
   function connect() {
