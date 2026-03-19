@@ -59,13 +59,18 @@ func renderHeader(root, entry, cliVersion string) string {
 	return headerStyle.Render(b.String())
 }
 
-func renderFooter(spin string, quitting bool) string {
+// renderFooter draws the footer with a top border. matchWidth should be the rendered header width
+// (e.g. lipgloss.Width(header)) so the divider matches the header’s bottom border.
+func renderFooter(spin string, quitting bool, matchWidth int) string {
 	var b strings.Builder
 	if quitting {
 		b.WriteString(statusStyle.Render(theme.EN.Dev.UI.FooterShuttingDown))
 	} else {
 		b.WriteString(fmt.Sprintf(theme.EN.Dev.UI.FooterWatchingLineFmt, statusStyle.Render(theme.EN.Dev.UI.FooterWatchingText), spin))
 		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render(theme.EN.Dev.UI.FooterPressCtrlC))
+	}
+	if matchWidth > 0 {
+		return footerStyle.Width(matchWidth).Render(b.String())
 	}
 	return footerStyle.Render(b.String())
 }
@@ -74,22 +79,25 @@ type logMsg string
 type devDoneMsg struct{}
 
 type devModel struct {
-	spinner  spinner.Model
-	viewport viewport.Model
-	quitting bool
-	header   string
-	logs     []string
-	ready    bool
+	spinner     spinner.Model
+	viewport    viewport.Model
+	quitting    bool
+	header      string
+	headerWidth int
+	logs        []string
+	ready       bool
 }
 
 func newDevModel(root, entry, cliVersion string) devModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = spinnerStyle
+	h := renderHeader(root, entry, cliVersion)
 	return devModel{
-		spinner: s,
-		header:  renderHeader(root, entry, cliVersion),
-		logs:    make([]string, 0),
+		spinner:     s,
+		header:      h,
+		headerWidth: lipgloss.Width(h),
+		logs:        make([]string, 0),
 	}
 }
 
@@ -106,7 +114,7 @@ func (m devModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		headerHeight := lipgloss.Height(m.header)
-		footerHeight := lipgloss.Height(renderFooter(m.spinner.View(), m.quitting))
+		footerHeight := lipgloss.Height(renderFooter(m.spinner.View(), m.quitting, m.headerWidth))
 		verticalMarginHeight := headerHeight + footerHeight
 
 		if !m.ready {
@@ -157,7 +165,7 @@ func (m devModel) View() string {
 	}
 
 	// Create the view
-	return fmt.Sprintf("%s\n%s\n%s", m.header, m.viewport.View(), renderFooter(m.spinner.View(), m.quitting))
+	return fmt.Sprintf("%s\n%s\n%s", m.header, m.viewport.View(), renderFooter(m.spinner.View(), m.quitting, m.headerWidth))
 }
 
 // uiWriter buffers lines and sends them as logMsg

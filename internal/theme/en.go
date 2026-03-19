@@ -99,18 +99,17 @@ var EN = localeBundle{
 ██████╔╝╚██████╔╝██║ ╚████║╚██████╔╝╚██████╔╝
 ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝  ╚═════╝ 
 `,
-			Title: "BUNGO DEV SERVER",
-			Description: "Welcome to the BunGo Development Environment. This server is continuously watching your Go,\n" +
-				"template, and React (JSX/TSX) files. When changes are detected, it will safely restart the\n" +
-				"backend process, rebuild frontend assets via embedded esbuild, and automatically refresh your\n" +
-				"connected browser tabs. Experience uncompromised, lightning-fast full-stack Go development.",
+			Title: "Development Server",
+			Description: "Welcome to the BunGo Development Environment. This server is continuously watching your project files.\n" +
+				"When changes are detected, it will safely restart the backend process, rebuild frontend assets, and automatically\n" +
+				"refresh your connected browser tabs. Experience uncompromised, lightning-fast full-stack Go+React.js development.",
 			LabelBunGoVersion:     "📦 BunGo version: ",
 			LabelReactRuntime:     "⚛️  React runtime: ",
 			LabelProjectRoot:      "📂 Project root : ",
 			LabelRunTarget:        "🎯 Run target   : ",
 			FooterShuttingDown:    "Gracefully shutting down BunGo dev server... 👋",
 			FooterWatchingLineFmt: "%s %s\n",
-			FooterWatchingText:    "👀 Watching for file changes... (Auto-reloading enabled)",
+			FooterWatchingText:    "👀 Watching for file changes...",
 			FooterPressCtrlC:      "🛑 Press Ctrl+C to stop the server.",
 			Initializing:          "\n  Initializing BunGo Dev Server...",
 		},
