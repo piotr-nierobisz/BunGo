@@ -47,9 +47,6 @@ func isDevModeEnabled() bool {
 // DevWebSocketPort is the fixed port the bungo CLI listens on for live reload; must match injected client.
 const DevWebSocketPort = 35729
 
-// EmbeddedReactVersion matches the vendored React in internal/builder/vendor/.
-const EmbeddedReactVersion = "18.2.0"
-
 func buildDevClientScript() string {
 	return `(function () {
   var hadDisconnect = false;
@@ -69,11 +66,25 @@ func buildDevClientScript() string {
     }, 300);
   }
 
+  function waitForAppReady() {
+    fetch(window.location.href, { method: "HEAD", cache: "no-store" })
+      .then(function (res) {
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          setTimeout(waitForAppReady, 200);
+        }
+      })
+      .catch(function () {
+        setTimeout(waitForAppReady, 200);
+      });
+  }
+
   function connect() {
     ws = new WebSocket(endpoint());
     ws.onopen = function () {
       if (hadDisconnect) {
-        window.location.reload();
+        waitForAppReady();
       }
     };
     ws.onclose = function () {

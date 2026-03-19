@@ -21,7 +21,7 @@ Install the CLI once:
 go install github.com/piotr-nierobisz/BunGo/cmd/bungo@latest
 ```
 
-CLI and embedded React versions are hardcoded in `cmd/bungo/version.go` (`BunGoCLIVersion`, `EmbeddedReactVersion`); update those constants when you cut a release or upgrade vendored React.
+Embedded React version and scaffold `go` directive live in `internal/theme/versions.go` (`EmbeddedReactVersion`, `ScaffoldGoVersion`). The public `bungo.EmbeddedReactVersion` re-exports the theme constant. User-facing CLI/dev/scaffold copy defaults live in `internal/theme/en.go` as locale bundle `theme.EN` (add more locales alongside it when needed).
 
 Create a full BunGo showcase app:
 

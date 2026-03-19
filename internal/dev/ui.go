@@ -8,65 +8,78 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	bungo "github.com/piotr-nierobisz/BunGo"
+	"github.com/piotr-nierobisz/BunGo/internal/theme"
 )
 
 var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FF00FF")).
-			Background(lipgloss.Color("#222222")).
-			Padding(1, 2)
-
-	subtitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00FFFF")).
-			Italic(true).
+	headerStyle = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderForeground(theme.Border).
+			PaddingBottom(1).
 			MarginBottom(1)
 
-	infoItemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#A0A0A0"))
-	infoValStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#000000"}).
+			Background(theme.Primary).
+			Padding(0, 2)
 
-	spinnerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Bold(true)
-	statusStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
-	logStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Italic(true)
+	infoItemStyle = lipgloss.NewStyle().Foreground(theme.Muted)
+	infoValStyle  = lipgloss.NewStyle().Foreground(theme.Text).Bold(true)
+
+	spinnerStyle = lipgloss.NewStyle().Foreground(theme.Accent).Bold(true)
+	statusStyle  = lipgloss.NewStyle().Foreground(theme.Text)
+
+	footerStyle = lipgloss.NewStyle().
+			MarginTop(1).
+			Border(lipgloss.NormalBorder(), true, false, false, false).
+			BorderForeground(theme.Border).
+			PaddingTop(1)
 )
 
-const epicAscii = `
-  ___             ___      
- | _ )_  _ _ _   / __|___  
- | _ \ || | ' \ | (_ / _ \ 
- |___/\_,_|_||_| \___\___/ 
-`
-
-func renderEpicHeader(root, entry, cliVersion string) string {
+func renderHeader(root, entry, cliVersion string) string {
 	var b strings.Builder
 
-	coloredAscii := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF00FF")).Render(strings.TrimPrefix(epicAscii, "\n"))
+	ascii := theme.EN.Dev.UI.ASCIIBanner
+	coloredAscii := lipgloss.NewStyle().Foreground(theme.Primary).Bold(true).Render(strings.TrimPrefix(ascii, "\n"))
 	b.WriteString(coloredAscii + "\n")
 
-	b.WriteString(titleStyle.Render("=== BunGo Dev Environment ===") + "\n")
-	b.WriteString(subtitleStyle.Render("Crafting the future of Go web apps...") + "\n")
+	b.WriteString(titleStyle.Render(theme.EN.Dev.UI.Title) + "\n")
 
-	b.WriteString(infoItemStyle.Render("BunGo version: ") + infoValStyle.Render(cliVersion) + "\n")
-	b.WriteString(infoItemStyle.Render("React runtime: ") + infoValStyle.Render(bungo.EmbeddedReactVersion) + "\n")
-	b.WriteString(infoItemStyle.Render("Project root : ") + infoValStyle.Render(root) + "\n")
-	b.WriteString(infoItemStyle.Render("Run target   : ") + infoValStyle.Render(entry) + "\n\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render(theme.EN.Dev.UI.Description) + "\n\n")
 
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).Render("Press Ctrl+C to stop.") + "\n\n")
+	b.WriteString(infoItemStyle.Render(theme.EN.Dev.UI.LabelBunGoVersion) + infoValStyle.Render(cliVersion) + "\n")
+	b.WriteString(infoItemStyle.Render(theme.EN.Dev.UI.LabelReactRuntime) + infoValStyle.Render(theme.EmbeddedReactVersion) + "\n")
+	b.WriteString(infoItemStyle.Render(theme.EN.Dev.UI.LabelProjectRoot) + infoValStyle.Render(root) + "\n")
+	b.WriteString(infoItemStyle.Render(theme.EN.Dev.UI.LabelRunTarget) + infoValStyle.Render(entry))
 
-	return b.String()
+	return headerStyle.Render(b.String())
+}
+
+func renderFooter(spin string, quitting bool) string {
+	var b strings.Builder
+	if quitting {
+		b.WriteString(statusStyle.Render(theme.EN.Dev.UI.FooterShuttingDown))
+	} else {
+		b.WriteString(fmt.Sprintf(theme.EN.Dev.UI.FooterWatchingLineFmt, spin, statusStyle.Render(theme.EN.Dev.UI.FooterWatchingText)))
+		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render(theme.EN.Dev.UI.FooterPressCtrlC))
+	}
+	return footerStyle.Render(b.String())
 }
 
 type logMsg string
 type devDoneMsg struct{}
 
 type devModel struct {
-	spinner     spinner.Model
-	quitting    bool
-	header      string
-	lastLogLine string
+	spinner  spinner.Model
+	viewport viewport.Model
+	quitting bool
+	header   string
+	logs     []string
+	ready    bool
 }
 
 func newDevModel(root, entry, cliVersion string) devModel {
@@ -75,7 +88,8 @@ func newDevModel(root, entry, cliVersion string) devModel {
 	s.Style = spinnerStyle
 	return devModel{
 		spinner: s,
-		header:  renderEpicHeader(root, entry, cliVersion),
+		header:  renderHeader(root, entry, cliVersion),
+		logs:    make([]string, 0),
 	}
 }
 
@@ -84,39 +98,66 @@ func (m devModel) Init() tea.Cmd {
 }
 
 func (m devModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
+
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		headerHeight := lipgloss.Height(m.header)
+		footerHeight := lipgloss.Height(renderFooter(m.spinner.View(), m.quitting))
+		verticalMarginHeight := headerHeight + footerHeight
+
+		if !m.ready {
+			m.viewport = viewport.New(msg.Width, msg.Height-verticalMarginHeight)
+			m.viewport.YPosition = headerHeight
+			// Initialize with logs if there are already any before window size is known
+			m.viewport.SetContent(strings.Join(m.logs, "\n"))
+			m.ready = true
+		} else {
+			m.viewport.Width = msg.Width
+			m.viewport.Height = msg.Height - verticalMarginHeight
+		}
+
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC {
 			m.quitting = true
 			return m, tea.Quit
 		}
+
 	case devDoneMsg:
 		m.quitting = true
 		return m, tea.Quit
+
 	case logMsg:
-		m.lastLogLine = string(msg)
-		return m, nil
+		// Clean up msg string
+		cleanMsg := strings.TrimRight(string(msg), "\n")
+		// Sometimes an empty log string is sent if just a newline was processed
+		if cleanMsg != "" {
+			m.logs = append(m.logs, cleanMsg)
+			m.viewport.SetContent(strings.Join(m.logs, "\n"))
+			m.viewport.GotoBottom()
+		}
+
 	case spinner.TickMsg:
-		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
+		cmds = append(cmds, cmd)
 	}
-	return m, nil
+
+	m.viewport, cmd = m.viewport.Update(msg)
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
 }
 
 func (m devModel) View() string {
-	if m.quitting {
-		return m.header + lipgloss.NewStyle().Foreground(lipgloss.Color("#A0A0A0")).Render("Shutting down BunGo dev server...") + "\n"
-	}
-	spin := m.spinner.View()
-	text := statusStyle.Render("Server is continuously working. Watching for changes...")
-
-	logLine := ""
-	if m.lastLogLine != "" {
-		logLine = "\n" + logStyle.Render(m.lastLogLine)
+	if !m.ready {
+		return theme.EN.Dev.UI.Initializing
 	}
 
-	return fmt.Sprintf("%s%s %s%s", m.header, spin, text, logLine)
+	// Create the view
+	return fmt.Sprintf("%s\n%s\n%s", m.header, m.viewport.View(), renderFooter(m.spinner.View(), m.quitting))
 }
 
 // uiWriter buffers lines and sends them as logMsg
@@ -151,7 +192,8 @@ func RunUI(ctx context.Context, stop context.CancelFunc, root, entry, cliVersion
 
 	errCh := make(chan error, 1)
 
-	p := tea.NewProgram(newDevModel(root, entry, cliVersion))
+	// Use alternate screen to render full terminal
+	p := tea.NewProgram(newDevModel(root, entry, cliVersion), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	uiW.p = p
 
 	go func() {

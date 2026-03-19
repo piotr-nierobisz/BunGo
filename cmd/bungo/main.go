@@ -8,21 +8,28 @@ import (
 	"runtime/debug"
 	"syscall"
 
-	bungo "github.com/piotr-nierobisz/BunGo"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/piotr-nierobisz/BunGo/internal/dev"
 	"github.com/piotr-nierobisz/BunGo/internal/scaffold"
+	"github.com/piotr-nierobisz/BunGo/internal/theme"
 	"github.com/spf13/cobra"
 )
 
 func main() {
 	rootCmd := &cobra.Command{
 		Use:   "bungo",
-		Short: "BunGo project helper CLI",
-		Long: fmt.Sprintf(
-			"=== BunGo CLI ===\n\nBunGo version: %s\nEmbedded React runtime: %s\n\nUse BunGo to scaffold apps and run the development workflow.",
-			getVersion(),
-			bungo.EmbeddedReactVersion,
-		),
+		Short: theme.EN.CLI.RootShort,
+		Long: lipgloss.NewStyle().MarginTop(1).MarginBottom(1).Render(fmt.Sprintf(
+			theme.EN.CLI.RootHelpBodyFmt,
+			lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Render(theme.EN.CLI.RootBannerTitle),
+			lipgloss.NewStyle().Foreground(theme.Secondary).Render(fmt.Sprintf(
+				theme.EN.CLI.RootVersionReactFmt,
+				getVersion(),
+				theme.EmbeddedReactVersion,
+			)),
+			theme.EN.CLI.RootHelpParagraph1,
+			theme.EN.CLI.RootHelpParagraph2,
+		)),
 		SilenceUsage: true,
 	}
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
@@ -41,7 +48,7 @@ func newInitCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init [project-name]",
-		Short: "Scaffold a BunGo showcase project",
+		Short: theme.EN.CLI.InitShort,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectPath, err := scaffold.InitProject(args[0], useTypescript)
@@ -54,17 +61,20 @@ func newInitCommand() *cobra.Command {
 				viewType = "TypeScript"
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Created BunGo showcase project at %s\n", projectPath)
-			fmt.Fprintf(cmd.OutOrStdout(), "View mode: %s\n", viewType)
-			fmt.Fprintln(cmd.OutOrStdout(), "Next steps:")
-			fmt.Fprintf(cmd.OutOrStdout(), "  cd %s\n", args[0])
-			fmt.Fprintln(cmd.OutOrStdout(), "  go mod tidy")
-			fmt.Fprintln(cmd.OutOrStdout(), "  bungo dev")
+			successMsg := lipgloss.NewStyle().Foreground(theme.Success).Bold(true).Render(fmt.Sprintf(theme.EN.CLI.InitSuccessFmt, projectPath))
+			modeMsg := lipgloss.NewStyle().Foreground(theme.Secondary).Render(fmt.Sprintf(theme.EN.CLI.InitModeFmt, viewType))
+			nextStepsHeader := lipgloss.NewStyle().Bold(true).Render(theme.EN.CLI.InitNextSteps)
+			cmds := lipgloss.NewStyle().Foreground(theme.Muted).Render(fmt.Sprintf(theme.EN.CLI.InitCommandsFmt, args[0]))
+
+			fmt.Fprintln(cmd.OutOrStdout(), successMsg)
+			fmt.Fprintln(cmd.OutOrStdout(), modeMsg+"\n")
+			fmt.Fprintln(cmd.OutOrStdout(), nextStepsHeader)
+			fmt.Fprintln(cmd.OutOrStdout(), cmds)
 			return nil
 		},
 	}
 
-	cmd.Flags().BoolVar(&useTypescript, "typescript", false, "Scaffold TypeScript views and add tsconfig.json")
+	cmd.Flags().BoolVar(&useTypescript, "typescript", false, theme.EN.CLI.FlagTypescript)
 	return cmd
 }
 
@@ -73,8 +83,8 @@ func newDevCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "dev",
-		Short: "Run BunGo development server",
-		Long:  "Runs `go run <entry>`, watches project files, and reloads browser pages after restart cycles.",
+		Short: theme.EN.CLI.DevShort,
+		Long:  theme.EN.CLI.DevLong,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, err := os.Getwd()
 			if err != nil {
@@ -84,7 +94,7 @@ func newDevCommand() *cobra.Command {
 			goModPath := filepath.Join(root, "go.mod")
 			if _, err := os.Stat(goModPath); err != nil {
 				if os.IsNotExist(err) {
-					return fmt.Errorf("go.mod not found in %s (run `bungo dev` from your project root)", root)
+					return fmt.Errorf(theme.EN.CLI.ErrGoModNotFoundFmt, root)
 				}
 				return err
 			}
@@ -95,14 +105,14 @@ func newDevCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&entry, "entry", ".", "Go entry target")
+	cmd.Flags().StringVar(&entry, "entry", ".", theme.EN.CLI.FlagEntry)
 	return cmd
 }
 
 func getVersion() string {
 	info, ok := debug.ReadBuildInfo()
 	if !ok || info.Main.Version == "" {
-		return "unknown"
+		return theme.CLIVersionUnknown
 	}
 	return info.Main.Version
 }

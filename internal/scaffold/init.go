@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/piotr-nierobisz/BunGo/internal/theme"
 )
 
 const (
@@ -401,17 +403,17 @@ declare function _bungoRender(component: any, elementId?: string): void;
 // InitProject scaffolds a BunGo showcase application.
 func InitProject(projectName string, useTypescript bool) (string, error) {
 	if strings.TrimSpace(projectName) == "" {
-		return "", errors.New("project name is required")
+		return "", errors.New(theme.EN.Scaffold.ErrProjectNameRequired)
 	}
 	if strings.Contains(projectName, string(filepath.Separator)) || strings.Contains(projectName, "/") {
-		return "", fmt.Errorf("project name must be a single directory name, got %q", projectName)
+		return "", fmt.Errorf(theme.EN.Scaffold.ErrProjectNameSingleDirFmt, projectName)
 	}
 
 	targetDir := filepath.Join(".", projectName)
 	if _, err := os.Stat(targetDir); err == nil {
-		return "", fmt.Errorf("target directory %q already exists", projectName)
+		return "", fmt.Errorf(theme.EN.Scaffold.ErrTargetExistsFmt, projectName)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("unable to access target directory %q: %w", projectName, err)
+		return "", fmt.Errorf(theme.EN.Scaffold.ErrTargetAccessFmt, projectName, err)
 	}
 
 	if err := os.MkdirAll(filepath.Join(targetDir, "web", "layouts"), 0o755); err != nil {
@@ -432,7 +434,7 @@ func InitProject(projectName string, useTypescript bool) (string, error) {
 	}
 
 	files := map[string]string{
-		"go.mod":  fmt.Sprintf("module %s\n\ngo 1.25.0\n", projectName),
+		"go.mod":  fmt.Sprintf(theme.EN.Scaffold.GoModBodyFmt, projectName, theme.ScaffoldGoVersion),
 		"main.go": fmt.Sprintf(mainTemplate, viewName),
 		filepath.Join("web", "layouts", "base.gohtml"): baseLayoutFile,
 		filepath.Join("web", "layouts", "home.gohtml"): homeTemplateFile,
@@ -448,7 +450,7 @@ func InitProject(projectName string, useTypescript bool) (string, error) {
 	for relPath, content := range files {
 		fullPath := filepath.Join(targetDir, relPath)
 		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
-			return "", fmt.Errorf("writing %s failed: %w", relPath, err)
+			return "", fmt.Errorf(theme.EN.Scaffold.ErrWritingFmt, relPath, err)
 		}
 	}
 
