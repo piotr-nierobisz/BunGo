@@ -64,7 +64,7 @@ func renderFooter(spin string, quitting bool) string {
 	if quitting {
 		b.WriteString(statusStyle.Render(theme.EN.Dev.UI.FooterShuttingDown))
 	} else {
-		b.WriteString(fmt.Sprintf(theme.EN.Dev.UI.FooterWatchingLineFmt, spin, statusStyle.Render(theme.EN.Dev.UI.FooterWatchingText)))
+		b.WriteString(fmt.Sprintf(theme.EN.Dev.UI.FooterWatchingLineFmt, statusStyle.Render(theme.EN.Dev.UI.FooterWatchingText), spin))
 		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render(theme.EN.Dev.UI.FooterPressCtrlC))
 	}
 	return footerStyle.Render(b.String())

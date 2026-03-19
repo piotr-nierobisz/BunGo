@@ -47,7 +47,8 @@ If you're migrating an existing Go project or prefer absolute control:
    ├── main.go
    └── web/
        ├── layouts/   # required for HTML templates
-       └── views/     # required for React components
+       ├── views/     # required for React components
+       └── static/    # optional: served at /static/
    ```
 
 > **Warning:** BunGo strictly expects the `web/layouts` and `web/views` folders to exist on server startup; if missing, your application will panic at boot to fail-fast.

@@ -76,4 +76,20 @@ srv.Api(bungo.ApiRoute{
 })
 ```
 
+## Static files (`web/static`)
+
+When you use **`engine.NewHTTPEngine()`** with a non-empty `webDir`, BunGo looks for a directory named **`static`** inside that folder. If it exists, the engine registers a standard file server:
+
+| On disk | URL |
+|--------|-----|
+| `<webDir>/static/styles.css` | `GET /static/styles.css` |
+| `<webDir>/static/img/logo.png` | `GET /static/img/logo.png` |
+
+- **Convention:** Put assets you want served as-is under `<webDir>/static/`. Reference them from HTML templates with root-absolute paths, e.g. `<link rel="stylesheet" href="/static/styles.css" />` or `<img src="/static/img/hero.webp" alt="" />`. APIs can return the same paths in JSON for use in React (see `examples/http_hybrid`).
+- **Optional:** If `static/` is missing, nothing is mounted—no error. There is **no** static mount when `webDir` is `""` (API-only servers).
+- **Security layers:** Static requests are handled by `net/http`’s `FileServer` on `/static/` and **do not** run BunGo **Security** layers. Treat everything under `static/` as **public**. Keep secrets and user-specific files out of this tree; use authenticated API or page handlers instead.
+- **What not to put here:** Compiled React view bundles are produced from `web/views/` and injected into HTML by BunGo—you do not copy or hand-link those as separate files under `static/`.
+- **Other engines:** The automatic `/static/` mount is implemented in the **HTTP** engine. **AWS Lambda** and **GCP** adapters route pages and `/api/...` only; for serverless or CDN deployments, host long-lived assets on object storage or a CDN and use full URLs or a path your gateway maps to that bucket.
+
+
 Next: [Templates and Layouts](./templates-and-layouts.md).

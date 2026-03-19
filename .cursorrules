@@ -24,6 +24,7 @@ BunGo is a lightweight, high-performance idiomatic Go web framework and asset bu
   - API Handler signature: `func(req *bungo.Request) (bungo.APIResponse, error)`
   - The internal `RenderTemplate` returns formatted HTML entirely agnostic of the Server environment. Adapters (e.g., `HTTPEngine`) are responsible for passing this to an `http.ResponseWriter` or corresponding vendor boundary.
 * **Configuration Structs:** Use pass-by-value for configuration structs (e.g., `PageRoute`, `ApiRoute`, `SecurityLayer`) during server initialization.
+* **Static assets (HTTP engine):** `engine.HTTPEngine` (`CreateHandler`) registers `GET /static/...` → `http.FileServer` on `<webDir>/static` when that directory exists and `WebDir` is non-empty. Static routes bypass BunGo Security layers. Lambda and GCP engines do not mount this handler; static files are typically served from CDN/object storage in those deployments.
 
 ## 4. Core Terminology
 * **`Server`**: The central registry. Holds routing maps, security layers, and delegates listening to the `Engine`.
