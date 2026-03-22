@@ -1,11 +1,16 @@
 package builder
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -87,9 +92,49 @@ var RemoteImportPlugin = api.Plugin{
 	},
 }
 
+type remoteModuleMeta struct {
+	Loader api.Loader `json:"loader"`
+}
+
+func getCacheDir() (string, error) {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		cacheDir = os.TempDir()
+	}
+	dir := filepath.Join(cacheDir, "bungo", "remote_modules")
+	return dir, os.MkdirAll(dir, 0755)
+}
+
+func getCacheFilePaths(moduleURL string) (string, string, error) {
+	dir, err := getCacheDir()
+	if err != nil {
+		return "", "", err
+	}
+	hash := sha256.Sum256([]byte(moduleURL))
+	hashStr := hex.EncodeToString(hash[:])
+	return filepath.Join(dir, hashStr+".body"), filepath.Join(dir, hashStr+".meta.json"), nil
+}
+
 func loadRemoteModule(moduleURL string) (remoteModule, error) {
 	if cached, ok := remoteModuleCache.Load(moduleURL); ok {
 		return cached.(remoteModule), nil
+	}
+
+	bodyPath, metaPath, cacheErr := getCacheFilePaths(moduleURL)
+	if cacheErr == nil {
+		if bodyData, bErr := os.ReadFile(bodyPath); bErr == nil {
+			if metaData, mErr := os.ReadFile(metaPath); mErr == nil {
+				var meta remoteModuleMeta
+				if err := json.Unmarshal(metaData, &meta); err == nil {
+					module := remoteModule{
+						contents: string(bodyData),
+						loader:   meta.Loader,
+					}
+					remoteModuleCache.Store(moduleURL, module)
+					return module, nil
+				}
+			}
+		}
 	}
 
 	req, err := http.NewRequest(http.MethodGet, moduleURL, nil)
@@ -113,9 +158,19 @@ func loadRemoteModule(moduleURL string) (remoteModule, error) {
 		return remoteModule{}, fmt.Errorf("reading %q failed: %w", moduleURL, err)
 	}
 
+	inferredLoader := inferRemoteLoader(moduleURL, resp.Header.Get("Content-Type"))
+
+	if cacheErr == nil {
+		meta := remoteModuleMeta{Loader: inferredLoader}
+		if metaData, err := json.Marshal(meta); err == nil {
+			os.WriteFile(bodyPath, body, 0644)
+			os.WriteFile(metaPath, metaData, 0644)
+		}
+	}
+
 	module := remoteModule{
 		contents: string(body),
-		loader:   inferRemoteLoader(moduleURL, resp.Header.Get("Content-Type")),
+		loader:   inferredLoader,
 	}
 	remoteModuleCache.Store(moduleURL, module)
 	return module, nil

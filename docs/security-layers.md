@@ -4,7 +4,7 @@ BunGo implements middleware under the concept of **Security Layers**. You global
 
 ## Creating a Security Layer
 
-A security layer receives a generic `bungo.Request` and resolves to a boolean determining whether traffic can progress. 
+A security layer receives a generic `bungo.Request` and resolves to a boolean determining whether traffic can progress. If any layer returns `false`, BunGo responds with **HTTP 401 Unauthorized** and does not run the route handler (for both Page and API routes).
 
 ## Chaining Layers and Passing Data
 
@@ -19,7 +19,7 @@ srv.Security(bungo.SecurityLayer{
     Handler: func(req *bungo.Request) bool {
         token := req.Headers["Authorization"]
         if token != "Bearer secret" {
-            return false // Stop here, return HTTP 403!
+            return false // Stop here, return HTTP 401 Unauthorized
         }
         
         // Pass data down the chain!
@@ -45,7 +45,7 @@ srv.Security(bungo.SecurityLayer{
         
         if userID != documentOwnerID {
             // They are authenticated, but don't own the resource!
-            return false // Return HTTP 403 Forbidden!
+            return false // Return HTTP 401 Unauthorized
         }
         
         return true
@@ -54,7 +54,7 @@ srv.Security(bungo.SecurityLayer{
 ```
 
 ## Attaching Layers to Routes
-To protect APIs, simply pass in the names of the layers. They are executed linearly.
+To protect APIs or pages, pass the layer names on `ApiRoute.SecurityLayer` or `PageRoute.SecurityLayer`. They are executed in order.
 
 ```go
 srv.Api(bungo.ApiRoute{

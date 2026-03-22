@@ -19,6 +19,7 @@ For complete guides, usage patterns, and best practices, **please refer to our n
 6. [Security Layers](./docs/security-layers.md)
 7. [CLI and Dev Tools](./docs/cli-tools.md)
 8. [Deployment Options](./docs/deployment.md)
+9. [AI-Assisted Development Guide](./docs/ai-guide.md)
 
 ---
 
@@ -27,7 +28,6 @@ For complete guides, usage patterns, and best practices, **please refer to our n
 You can instantly scaffold a fresh BunGo application using our dedicated CLI tool.
 
 > **Important Note**: To use the `bungo` CLI, your Go `bin` directory must be in your system's `PATH`. If you encounter a "command not found" error after installation, add `$HOME/go/bin` to your `PATH` (e.g., `export PATH=$PATH:$HOME/go/bin` in your `.zshrc` or `.bashrc`). For specific OS instructions, see the [Installation Guide](./docs/installation.md).
-
 1. Install the CLI once:
    ```bash
    go install github.com/piotr-nierobisz/BunGo/cmd/bungo@latest
@@ -49,11 +49,12 @@ For manual project setups without the CLI, [refer to the Installation Guide](./d
 ---
 
 ## TODOs
-- [x] Improved documentation / wiki
+- [x] Improved documentation
 - [ ] Add unit tests
-- [ ] Cache resolved dependencies for faster startup
+- [x] Cache resolved dependencies for faster startup
 - [x] TypeScript support (`.tsx`/`.ts` views + CLI `--typescript` scaffold)
-- [ ] Production optimizations
+- [ ] Allow for in browser optimisation by serving minified JS separate to the template 
 - [x] Live reload for development (`bungo dev`)
 - [ ] More comments!
 - [ ] Add support for net/http ssl
+- [ ] Add a template function to auto-inject jsx/tsx files e.g {{ bungoView "showcase.tsx" . }}

@@ -36,7 +36,7 @@ _bungoRender(App);
 ```
 
 ### ESM Remote Imports
-Since there is no `node_modules` folder, BunGo supports bringing in third parth dependencies through seamless Deno-style URL imports straight from CDNs. BunGo smartly fetches and caches them on load!
+Since there is no `node_modules` folder, BunGo supports bringing in third-party dependencies through seamless Deno-style URL imports straight from CDNs. BunGo fetches and resolves them at build time, and **automatically caches them on disk** (in your global `os.UserCacheDir()/bungo/remote_modules` directory) to ensure blazing-fast restarts without re-downloading dependencies!
 
 ```jsx
 // We can use Recharts natively just by specifying its ESM.sh link!
@@ -49,7 +49,7 @@ function Chart() {
 ```
 
 ### Importing Local Components
-Just like in a traditional Node.js environment, you can break down your user interface into smaller, reusable components. You can place generic elements like buttons or forms into a separate directory like `web/components/`, export them, and import them directly into your views!
+Just like in a traditional Node.js environment, you can break down your user interface into smaller, reusable components. Create a directory such as `web/components/` (the `bungo init` scaffold does not add this folder—you add it when you need shared components), export your modules, and import them from view entry files using relative paths.
 
 ```jsx
 // web/components/Button.jsx

@@ -48,7 +48,9 @@ func main() {
     awsEngine := engine_aws.NewLambdaEngine()
     srv := bungo.NewServer(awsEngine, "./web")
     // ...
-    srv.Serve(8080)
+    srv.Serve(8080) // port value is ignored: LambdaEngine runs lambda.Start and does not ListenAndServe
 }
 ```
-*(Ideal test conditions usually require AWS SAM CLI or Lambda RIE extensions)*
+For this engine, `Serve`’s port is unused (any value is acceptable). For local testing, use the AWS SAM CLI or Lambda Runtime Interface Emulator (RIE).
+
+If you use AI-assisted development tools, the [AI Agent Reference](./ai-guide.md) provides a self-contained rules text you can copy into your project to give coding agents full context on BunGo's architecture and conventions.

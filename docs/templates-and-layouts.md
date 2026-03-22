@@ -54,6 +54,6 @@ srv.Page(bungo.PageRoute{
 The map returned from your Go Handler is accessible directly in the `.gohtml` files. So if you return `{"PageTitle": "Hello"}`, you can write `<title>{{.PageTitle}}</title>` inside your Layout or Template!
 
 _Wait, what about the `<script>` tags for React?_
-BunGo completely removes the burden. BunGo intelligently parses your templates and **auto-injects** every compiled JSX view and the serialized handler JSON data straight into your DOM before `</body>`.
+BunGo completely removes the burden. It **auto-injects** the compiled JSX bundle, serialized handler JSON (`window.__BUNGO_DATA__`), and (in dev) the live-reload client by inserting a snippet **before the first `</head>`** in the rendered HTML; if there is no `</head>`, it falls back to **before `</body>`**, or appends to the document if neither tag exists.
 
 Next: [React Integration](./react-integration.md).

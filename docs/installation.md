@@ -27,6 +27,8 @@ You can instantly scaffold a fresh BunGo application using our dedicated CLI too
    bungo init my-project --typescript
    ```
 
+![BunGo Client](./docs/assets/bungo-cli.gif)
+
 ## Manual Setup
 If you're migrating an existing Go project or prefer absolute control:
 

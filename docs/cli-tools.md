@@ -21,10 +21,10 @@ bungo dev
 ```
 
 ### What does it do?
-- Automatically runs `go run .`  to start your internal systems. (Can be overridden via `bungo dev --entry ./path/to/main.go`)
-- Initiates an internal WebSocket at Port `35729` tracking live reload events.
-- Hot-watches modifying `.go`, `.gohtml`, `.jsx`, `.tsx` files inside your environment. 
-- Debounces save bursts, restarts the Go instance, and injects reconnect scripts that auto-refresh your browser view instantly on reconnect. 
+- Runs `go run <entry>` from the project root with a default entry of `.` (same as `go run .`). Override the package or file with `bungo dev --entry ./cmd/server` or similar.
+- Starts a WebSocket server on port **35729** at path **`/__bungo`** (fixed; see `bungo.DevWebSocketPort`). The dev runner notifies browsers on that endpoint so they reconnect and reload after restarts.
+- Recursively watches the project tree (skipping dirs such as `.git`, `vendor`, `bin`, `dist`, and other ignored paths in `internal/dev/watcher.go`) and restarts when relevant files change: **`.go`**, **.sum`**, **`.gohtml`**, **`.html`**, **`.css`**, **`.js`**, **`.jsx`**, **`.ts`**, **`.tsx`**.`.mod`**, **`
+- Debounces bursty saves (~200ms), restarts the Go process, disconnects WebSocket clients, and relies on the injected reconnect script so the browser refreshes once the app is back up.
 
 It results in a flawless edit-save-refresh development loop that feels like magic.
 

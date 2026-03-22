@@ -76,6 +76,8 @@ srv.Api(bungo.ApiRoute{
 })
 ```
 
+Failed security layers on page or API routes return **HTTP 401 Unauthorized**; see [Security Layers](./security-layers.md).
+
 ## Static files (`web/static`)
 
 When you use **`engine.NewHTTPEngine()`** with a non-empty `webDir`, BunGo looks for a directory named **`static`** inside that folder. If it exists, the engine registers a standard file server:
