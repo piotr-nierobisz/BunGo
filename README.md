@@ -53,8 +53,8 @@ For manual project setups without the CLI, [refer to the Installation Guide](./d
 - [ ] Add unit tests
 - [x] Cache resolved dependencies for faster startup
 - [x] TypeScript support (`.tsx`/`.ts` views + CLI `--typescript` scaffold)
-- [ ] Allow for in browser optimisation by serving minified JS separate to the template 
+- [x] Allow for in browser optimisation by serving minified JS separate to the template 
 - [x] Live reload for development (`bungo dev`)
-- [ ] More comments!
+- [x] More comments!
 - [ ] Add support for net/http ssl
 - [ ] Add a template function to auto-inject jsx/tsx files e.g {{ bungoView "showcase.tsx" . }}

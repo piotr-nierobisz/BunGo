@@ -24,13 +24,17 @@ type Options struct {
 	Stderr io.Writer
 }
 
-// Run starts the BunGo dev loop: it runs `go run .`, watches project files,
-// restarts the app on changes, and disconnects websocket clients to trigger
-// browser reloads.
-//
-// The caller is responsible for providing a context that is cancelled when
-// dev mode should stop (for example, via os.Interrupt handling in the CLI).
-func Run(ctx context.Context, projectRoot string, opts Options) error {
+// Run starts the BunGo dev loop with process restart, file watching, and websocket reload signaling.
+// Inputs:
+// - ctx: cancellation context used to stop dev mode and trigger graceful shutdown.
+// - projectRoot: project root directory used for file watching and `go run` execution.
+// - opts: optional dev runner configuration; nil uses defaults and discards process output.
+// Outputs:
+// - error: non-nil when startup, watcher, websocket server, or runtime loop handling fails.
+func Run(ctx context.Context, projectRoot string, opts *Options) error {
+	if opts == nil {
+		opts = &Options{}
+	}
 	if opts.RunTarget == "" {
 		opts.RunTarget = "."
 	}
@@ -130,6 +134,11 @@ func Run(ctx context.Context, projectRoot string, opts Options) error {
 	}
 }
 
+// drainChangeEvents drains queued watcher change notifications without blocking.
+// Inputs:
+// - ch: watcher change channel to drain before processing a debounced reload.
+// Outputs:
+// - none
 func drainChangeEvents(ch <-chan struct{}) {
 	for {
 		select {

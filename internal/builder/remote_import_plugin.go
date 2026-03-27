@@ -96,6 +96,12 @@ type remoteModuleMeta struct {
 	Loader api.Loader `json:"loader"`
 }
 
+// getCacheDir returns the remote module cache directory path and ensures it exists.
+// Inputs:
+// - none
+// Outputs:
+// - string: absolute path to the BunGo remote module cache directory.
+// - error: non-nil when cache directory creation fails.
 func getCacheDir() (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
@@ -105,6 +111,13 @@ func getCacheDir() (string, error) {
 	return dir, os.MkdirAll(dir, 0755)
 }
 
+// getCacheFilePaths returns body and metadata cache file paths for a remote module URL.
+// Inputs:
+// - moduleURL: absolute remote module URL used as stable cache key material.
+// Outputs:
+// - string: cache file path for the raw module body.
+// - string: cache file path for module metadata JSON.
+// - error: non-nil when cache directory resolution fails.
 func getCacheFilePaths(moduleURL string) (string, string, error) {
 	dir, err := getCacheDir()
 	if err != nil {
@@ -115,6 +128,12 @@ func getCacheFilePaths(moduleURL string) (string, string, error) {
 	return filepath.Join(dir, hashStr+".body"), filepath.Join(dir, hashStr+".meta.json"), nil
 }
 
+// loadRemoteModule loads a remote module from memory cache, disk cache, or HTTP fetch.
+// Inputs:
+// - moduleURL: absolute remote module URL to retrieve and classify.
+// Outputs:
+// - remoteModule: module payload containing source contents and inferred esbuild loader.
+// - error: non-nil when URL fetch, cache decode, or response read fails.
 func loadRemoteModule(moduleURL string) (remoteModule, error) {
 	if cached, ok := remoteModuleCache.Load(moduleURL); ok {
 		return cached.(remoteModule), nil
@@ -176,6 +195,12 @@ func loadRemoteModule(moduleURL string) (remoteModule, error) {
 	return module, nil
 }
 
+// inferRemoteLoader infers the esbuild loader from HTTP content type and URL extension.
+// Inputs:
+// - moduleURL: remote module URL whose path extension helps infer module type.
+// - contentType: HTTP Content-Type header value returned by the remote server.
+// Outputs:
+// - api.Loader: selected loader used by esbuild to parse the fetched module.
 func inferRemoteLoader(moduleURL string, contentType string) api.Loader {
 	trimmedType := strings.TrimSpace(strings.ToLower(strings.Split(contentType, ";")[0]))
 	switch trimmedType {
@@ -206,6 +231,12 @@ func inferRemoteLoader(moduleURL string, contentType string) api.Loader {
 	}
 }
 
+// resolveEmbeddedReactFromRemoteURL maps remote React-family URLs to embedded runtime modules.
+// Inputs:
+// - moduleURL: remote URL candidate that may represent react, react-dom, or jsx-runtime.
+// Outputs:
+// - api.OnResolveResult: resolve result that points to BunGo embedded React namespaces.
+// - bool: true when moduleURL maps to an embedded React alias; otherwise false.
 func resolveEmbeddedReactFromRemoteURL(moduleURL string) (api.OnResolveResult, bool) {
 	module := classifyRemoteReactModule(moduleURL)
 	switch module {
@@ -229,6 +260,11 @@ func resolveEmbeddedReactFromRemoteURL(moduleURL string) (api.OnResolveResult, b
 	}
 }
 
+// classifyRemoteReactModule classifies a remote URL as react, react-dom, jsx-runtime, or non-react.
+// Inputs:
+// - moduleURL: remote URL inspected for React package path markers.
+// Outputs:
+// - string: module classification key (`react`, `react-dom`, `react/jsx-runtime`, or empty).
 func classifyRemoteReactModule(moduleURL string) string {
 	parsed, err := url.Parse(moduleURL)
 	if err != nil {

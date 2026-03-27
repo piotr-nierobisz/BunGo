@@ -83,4 +83,16 @@ function App() {
 _bungoRender(App);
 ```
 
+## Production bundle delivery mode
+
+By default, BunGo injects each compiled view bundle inline into the HTML response.
+
+If you want better browser caching in production, enable:
+
+```go
+srv.SetAssetOptimization(true)
+```
+
+In this mode, BunGo serves compiled assets from `/_bungo/*.js` and injects `<script type="module" src="...">` tags instead of embedding the full bundle into every page response.
+
 Next: [Security Layers](./security-layers.md).

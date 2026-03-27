@@ -12,6 +12,7 @@ import "github.com/piotr-nierobisz/BunGo/engine"
 func main() {
     engineInstance := engine.NewHTTPEngine()
     srv := bungo.NewServer(engineInstance, "./web")
+    srv.SetAssetOptimization(true) // optional: serve bundles via /_bungo/*.js for browser caching
     // ...
     srv.Serve(3303)
 }

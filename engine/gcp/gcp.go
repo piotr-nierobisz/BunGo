@@ -17,15 +17,23 @@ type GCPEngine struct {
 	FunctionName string
 }
 
-// NewGCPEngine creates a new GCP adapter. The functionName must match
-// the entry point you define in the GCP Cloud Functions console.
+// NewGCPEngine creates a GCP engine bound to a Cloud Functions HTTP entrypoint name.
+// Inputs:
+// - functionName: Cloud Function entrypoint identifier registered in deployment settings.
+// Outputs:
+// - *GCPEngine: engine instance that proxies BunGo HTTP handling into Functions Framework.
 func NewGCPEngine(functionName string) *GCPEngine {
 	return &GCPEngine{
 		FunctionName: functionName,
 	}
 }
 
-// Start registers the framework with GCP and starts the local framework server.
+// Start registers BunGo routing as the GCP function handler and starts the framework server.
+// Inputs:
+// - address: listen address where the Functions Framework starts locally.
+// - srv: BunGo server registry used to create the underlying HTTP handler.
+// Outputs:
+// - error: non-nil when handler initialization or framework startup fails.
 func (e *GCPEngine) Start(address string, srv *bungo.Server) error {
 	// 1. Initialize the HTTP routing setup from BunGo
 	httpEngine := engine.NewHTTPEngine()

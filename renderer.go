@@ -9,16 +9,24 @@ import (
 	"strings"
 )
 
-// buildScriptInjection returns the raw template snippet for __BUNGO_DATA__ and optional
-// inline module script, and the payload map to pass to Execute. Callers must inject
-// the snippet into the HTML and pass payload to the template.
-func buildScriptInjection(data map[string]any, inlineJS string) (injectionStr string, payload map[string]any) {
+// buildScriptInjection builds template script injection markup and execution payload data.
+// Inputs:
+// - data: page data map that will be available to template execution and the browser.
+// - inlineJS: compiled JavaScript bundle to inject inline as a module script.
+// - moduleSrc: static module URL to inject instead of an inline bundle when provided.
+// Outputs:
+// - injectionStr: raw template snippet containing script tags for injection into HTML.
+// - payload: template payload map including escaped script values and page data.
+func buildScriptInjection(data map[string]any, inlineJS string, moduleSrc string) (injectionStr string, payload map[string]any) {
 	var b strings.Builder
 	if len(data) > 0 {
 		b.WriteString("\n<script>window.__BUNGO_DATA__ = {{.BunGoInitialData}};</script>")
 	}
 	if inlineJS != "" {
 		b.WriteString("\n<script type=\"module\">{{.BunGoInlineJS}}</script>\n")
+	}
+	if moduleSrc != "" {
+		b.WriteString("\n<script type=\"module\" src=\"{{.BunGoModuleSrc}}\"></script>\n")
 	}
 	if isDevModeEnabled() {
 		b.WriteString("\n<script>{{.BunGoDevClientJS}}</script>\n")
@@ -34,12 +42,20 @@ func buildScriptInjection(data map[string]any, inlineJS string) (injectionStr st
 	if inlineJS != "" {
 		payload["BunGoInlineJS"] = template.JS(inlineJS)
 	}
+	if moduleSrc != "" {
+		payload["BunGoModuleSrc"] = template.URL(moduleSrc)
+	}
 	if isDevModeEnabled() {
 		payload["BunGoDevClientJS"] = template.JS(buildDevClientScript())
 	}
 	return b.String(), payload
 }
 
+// isDevModeEnabled reports whether BunGo dev mode is enabled for live-reload injection.
+// Inputs:
+// - none
+// Outputs:
+// - bool: true when BUNGO_DEV_ENABLED is set to "1"; otherwise false.
 func isDevModeEnabled() bool {
 	return os.Getenv("BUNGO_DEV_ENABLED") == "1"
 }
@@ -47,6 +63,11 @@ func isDevModeEnabled() bool {
 // DevWebSocketPort is the fixed port the bungo CLI listens on for live reload; must match injected client.
 const DevWebSocketPort = 35729
 
+// buildDevClientScript returns the live-reload browser client script used in dev mode.
+// Inputs:
+// - none
+// Outputs:
+// - string: JavaScript source that reconnects to the BunGo dev websocket endpoint.
 func buildDevClientScript() string {
 	return `(function () {
   var hadDisconnect = false;
@@ -105,7 +126,12 @@ func buildDevClientScript() string {
 })();`
 }
 
-// injectScripts inserts the injection string before the first </head> or </body>, or appends if neither is found.
+// injectScripts injects script markup into HTML before head/body closing tags when available.
+// Inputs:
+// - html: source HTML document string to modify.
+// - injection: script markup snippet produced by buildScriptInjection.
+// Outputs:
+// - string: HTML with injected scripts, or the original HTML when injection is empty.
 func injectScripts(html string, injection string) string {
 	if injection == "" {
 		return html
@@ -119,22 +145,24 @@ func injectScripts(html string, injection string) string {
 	return html + injection
 }
 
-// RenderTemplate renders the page using optional layout composition.
-//
-// templatePath is required: the page-specific .gohtml file. When layoutPath is empty,
-// it is treated as a standalone page: scripts are injected and this template is executed.
-//
-// layoutPath is optional: when set, it is the wrapper .gohtml that defines {{block "content" .}}.
-// The template file is expected to define {{define "content"}}...{{end}}. Scripts are
-// injected into the layout (e.g. before </head> or </body>), and the layout is executed
-// so that the block is filled by the template's "content" definition.
+// RenderTemplate renders a page template, optionally composed inside a layout template.
+// Inputs:
+// - templatePath: required path to the page-specific .gohtml template file.
+// - layoutPath: optional wrapper .gohtml path that defines {{block "content" .}}.
+// - inlineJS: compiled JavaScript source to inject inline as a module script.
+// - moduleSrc: optional static module URL injected when asset optimization is enabled.
+// - data: template data passed to Execute after BunGo script fields are merged in.
+// Outputs:
+// - string: fully rendered HTML with BunGo data/scripts injected into template output.
+// - error: non-nil when template files cannot be read, parsed, or executed.
 func RenderTemplate(
 	templatePath string,
 	layoutPath string,
 	inlineJS string,
+	moduleSrc string,
 	data map[string]any,
 ) (string, error) {
-	injection, payload := buildScriptInjection(data, inlineJS)
+	injection, payload := buildScriptInjection(data, inlineJS, moduleSrc)
 
 	if layoutPath == "" {
 		// Standalone page: single template, inject scripts and execute.

@@ -9,18 +9,12 @@ import (
 )
 
 func main() {
-	// Engine: chooses how requests are served (e.g. net/http, Lambda, Cloud Run).
-	// HTTPEngine uses standard library net/http and compiles JSX from views/ at startup.
 	engineInstance := engine.NewHTTPEngine()
-
-	// Server: central registry for routes, security layers, and web dir (layouts/, views/, optional static/).
 	srv := bungo.NewServer(engineInstance, "./web")
 
-	// Optional: shared base layout. Page templates define {{define "content"}} and are rendered
-	// inside base.gohtml's {{block "content" .}}, so you don't repeat <html><head><body> per page.
 	srv.SetDefaultLayout("base.gohtml")
+	srv.SetAssetOptimization(false)
 
-	// Security layers: reusable middleware. Chain them by name on routes (Pages or APIs).
 	srv.Security(bungo.SecurityLayer{
 		Name: "check_jwt_token",
 		Handler: func(req *bungo.Request) bool {
@@ -28,9 +22,6 @@ func main() {
 			return true
 		},
 	})
-
-	// ——— Page routes ———
-	// Each page has a required Template (layouts/*.gohtml) and optional View (views/*.jsx, compiled by BunGo).
 
 	srv.Page(bungo.PageRoute{
 		Path:     "/",

@@ -22,6 +22,14 @@ type processRunner struct {
 	waitDone chan error
 }
 
+// newProcessRunner creates a process runner configured for repeated `go run` restarts.
+// Inputs:
+// - projectRoot: working directory where `go run` will execute.
+// - runTarget: target passed as `go run <target>`.
+// - stdout: destination for child process stdout stream.
+// - stderr: destination for child process stderr stream.
+// Outputs:
+// - *processRunner: initialized process runner with no active command.
 func newProcessRunner(projectRoot, runTarget string, stdout, stderr io.Writer) *processRunner {
 	return &processRunner{
 		projectRoot: projectRoot,
@@ -31,6 +39,11 @@ func newProcessRunner(projectRoot, runTarget string, stdout, stderr io.Writer) *
 	}
 }
 
+// Restart stops any running process and starts a fresh process instance.
+// Inputs:
+// - none
+// Outputs:
+// - error: non-nil when stop or start sequence fails.
 func (r *processRunner) Restart() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -41,12 +54,23 @@ func (r *processRunner) Restart() error {
 	return r.startLocked()
 }
 
+// Stop terminates the currently running process if one exists.
+// Inputs:
+// - none
+// Outputs:
+// - error: non-nil when process termination fails.
 func (r *processRunner) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.stopLocked()
 }
 
+// CheckExited reports whether the currently running process has exited.
+// Inputs:
+// - none
+// Outputs:
+// - bool: true when the tracked process has exited since the previous check.
+// - error: process wait error returned when an exited process is observed.
 func (r *processRunner) CheckExited() (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -65,6 +89,11 @@ func (r *processRunner) CheckExited() (bool, error) {
 	}
 }
 
+// startLocked starts a new child process and records its wait channel.
+// Inputs:
+// - none
+// Outputs:
+// - error: non-nil when process creation or start fails.
 func (r *processRunner) startLocked() error {
 	cmd := exec.Command("go", "run", r.runTarget)
 	cmd.Dir = r.projectRoot
@@ -87,6 +116,11 @@ func (r *processRunner) startLocked() error {
 	return nil
 }
 
+// stopLocked attempts graceful process-group stop and escalates to force kill on timeout.
+// Inputs:
+// - none
+// Outputs:
+// - error: non-nil when termination signaling fails in unrecoverable paths.
 func (r *processRunner) stopLocked() error {
 	if r.cmd == nil {
 		return nil
@@ -115,6 +149,12 @@ func (r *processRunner) stopLocked() error {
 	return nil
 }
 
+// signalProcessGroup sends a Unix signal to the process group identified by pid.
+// Inputs:
+// - pid: process identifier whose process group will receive the signal.
+// - signal: OS signal delivered to the process group.
+// Outputs:
+// - error: non-nil when pid is invalid or signal delivery fails.
 func signalProcessGroup(pid int, signal syscall.Signal) error {
 	if pid <= 0 {
 		return fmt.Errorf("invalid process id: %d", pid)
@@ -131,6 +171,12 @@ type lineSuppressingWriter struct {
 	pending []byte
 }
 
+// newLineSuppressingWriter wraps a writer and drops exact matching lines.
+// Inputs:
+// - dst: destination writer that receives non-suppressed lines.
+// - suppressLine: exact line content that should be filtered out.
+// Outputs:
+// - io.Writer: suppressing writer wrapper, or dst when suppression is disabled.
 func newLineSuppressingWriter(dst io.Writer, suppressLine string) io.Writer {
 	if dst == nil || suppressLine == "" {
 		return dst
@@ -141,6 +187,12 @@ func newLineSuppressingWriter(dst io.Writer, suppressLine string) io.Writer {
 	}
 }
 
+// Write buffers bytes until newline boundaries and forwards only non-suppressed lines.
+// Inputs:
+// - p: byte slice chunk written by the process stderr/stdout pipeline.
+// Outputs:
+// - int: number of input bytes consumed from p.
+// - error: non-nil when writing forwarded output to destination fails.
 func (w *lineSuppressingWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

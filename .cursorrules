@@ -18,12 +18,12 @@ BunGo is a lightweight, high-performance idiomatic Go web framework and asset bu
 * **No Business Logic:** The framework is strictly infrastructure. It routes requests, applies security layers, compiles JSX, and renders templates. It must NEVER import database drivers or user-specific models.
 * **Fail-Fast Asset Validation:** The server strictly requires the provided `webDir` and its `layouts/` and `views/` subdirectories to exist at boot. It will immediately `panic()` if they are missing or if a registered page requests a missing template/layout/view file. If a Layout (per-route or `DefaultLayout`) is specified, that layout file must exist.
 * **Template vs Layout:** `Template` is always required—the page-specific `.gohtml` file in `layouts/`. `Layout` is optional and enables Go template composition: a wrapper template (e.g., `base.gohtml`) defines `{{block "content" .}}`; the Template fills it with `{{define "content"}}...{{end}}`, avoiding repeated `<html><head><body>` boilerplate. `Server.DefaultLayout` sets a global layout for all pages that do not specify their own.
-* **Automated Template Injection:** `RenderTemplate` injects `window.__BUNGO_DATA__` and the compiled JSX bundle automatically. When no Layout is used: scripts go before `</head>` or `</body>`. When a Layout is used: scripts are injected into the layout. Developers must NOT manually place these script tags in their views.
+* **Automated Template Injection:** `RenderTemplate` injects `window.__BUNGO_DATA__` and the compiled JSX bundle automatically. Default behavior inlines the compiled bundle with `<script type="module">`. When `Server.SetAssetOptimization(true)` is enabled, BunGo injects `<script type="module" src="/_bungo/<view>.js">` and serves cacheable bundle files from `/_bungo/...`. When no Layout is used: scripts go before `</head>` or `</body>`. When a Layout is used: scripts are injected into the layout. Developers must NOT manually place these script tags in their views.
 * **Agnostic Handlers & Rendering:** 
   - Page Handler signature: `func(req *bungo.Request) (map[string]any, error)`
   - API Handler signature: `func(req *bungo.Request) (bungo.APIResponse, error)`
   - The internal `RenderTemplate` returns formatted HTML entirely agnostic of the Server environment. Adapters (e.g., `HTTPEngine`) are responsible for passing this to an `http.ResponseWriter` or corresponding vendor boundary.
-* **Configuration Structs:** Use pass-by-value for configuration structs (e.g., `PageRoute`, `ApiRoute`, `SecurityLayer`) during server initialization.
+* **Configuration Structs / Reference Passing:** Prefer pass-by-reference for internal/library-facing function inputs wherever possible so internal flows keep identity and avoid unnecessary copies. **Exception:** developer-facing public APIs can stay pass-by-value when that keeps DX simpler (for example route registration structs in top-level server APIs). When changing a signature from value to pointer, all consumers, examples, and docs must be updated in the same task.
 * **Security layers:** Routes may list `SecurityLayer` names on `PageRoute` or `ApiRoute`. Layers run in order; if any handler returns `false`, the adapter responds with **HTTP 401 Unauthorized** and does not run the page/API handler (see `engine/http.go` and `engine/aws/aws.go`).
 * **Static assets (HTTP engine):** `engine.HTTPEngine` (`CreateHandler`) registers `GET /static/...` → `http.FileServer` on `<webDir>/static` when that directory exists and `WebDir` is non-empty. Static routes bypass BunGo Security layers. 
 
@@ -34,3 +34,13 @@ BunGo is a lightweight, high-performance idiomatic Go web framework and asset bu
 * **`APIResponse`**: Contains an HTTP `StatusCode` (int) and a `Body` (any) to be marshaled to JSON.
 * **`Template`**: The required page-specific `.gohtml` file in `layouts/`. Defines page content, optionally with `{{define "content"}}` when using Layout composition.
 * **`Layout`**: Optional wrapper template in `layouts/` that defines `{{block "content" .}}`. Used for composition to avoid repeating `<html><head><body>` in every template.
+
+## 5. Function Comment Standard (CRITICAL)
+* Every function and method must use a standardized doc comment format.
+* Comment must start with the exact function/method name.
+* Required structure:
+  1. One concise sentence describing behavior.
+  2. `Inputs:` section with one bullet per parameter.
+  3. `Outputs:` section with one bullet per return value. If no returns, use `- none`.
+* Keep comments implementation-agnostic and focused on contract (what it does, not line-by-line internals).
+* When function signatures are changed (especially value -> pointer updates), update all consumers and documentation examples in the same task.

@@ -57,6 +57,16 @@ required and no static files are served.
     Sets an optional default layout file for all page routes that do not specify their
     own Layout. The file must exist in webDir/layouts/ (panics otherwise).
 
+  func (s *Server) SetAssetOptimization(enabled bool)
+
+    Toggles production-oriented view asset delivery (default false). When enabled,
+    templates reference `/_bungo/*.js` URLs instead of embedding full view bundles
+    inline, allowing browser caching and smaller HTML payloads.
+
+  func (s *Server) AssetOptimizationEnabled() bool
+
+    Returns whether optimized JS asset delivery is enabled.
+
   func (s *Server) Api(route ApiRoute)
 
     Registers an API route. The internal key is "Version:Method:Path".
@@ -181,7 +191,10 @@ returns map[string]any{"PageTitle": "Hello"}, use {{.PageTitle}} in the template
 
 Script injection: BunGo automatically injects <script> tags for:
   - window.__BUNGO_DATA__ (the handler's map, JSON-serialized)
-  - The compiled JSX bundle (inline <script type="module">)
+  - The compiled JSX bundle:
+      - default: inline <script type="module">...</script>
+      - optimized mode (SetAssetOptimization(true)): external
+        <script type="module" src="/_bungo/<view>.js"></script>
 
 Injection point: before the first </head> tag; if absent, before </body>; if neither
 exists, appended to the document. When a Layout is used, injection happens in the
@@ -280,7 +293,8 @@ What happens at request time:
     window.__BUNGO_DATA__ for the React view.
   - The template (home.gohtml) is rendered. If a Layout is set, the template's
     {{define "content"}}...{{end}} block fills the layout's {{block "content" .}}.
-  - The compiled View bundle and __BUNGO_DATA__ script are injected automatically.
+  - The compiled View bundle and __BUNGO_DATA__ script are injected automatically
+    (inline by default, external /_bungo/*.js when optimization is enabled).
 
 Template is always required. Layout is optional (can be set per-route or globally
 via SetDefaultLayout). View is optional — pages can be pure server-rendered HTML.
