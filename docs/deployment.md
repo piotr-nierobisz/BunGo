@@ -13,8 +13,6 @@ bungo build
 
 `bungo build` automatically embeds your configured web assets (`layouts`, `views`, and `static`) into the binary. At runtime, BunGo reads assets from embedded memory first and falls back to disk if needed, so deployment no longer requires shipping a separate web directory.
 
-If your project uses a non-standard web root, pass `--web-dir` (for example `bungo build --web-dir ./cmd/site/web`). Supplying `--web-dir` disables auto-discovery and embeds only the provided directory.
-
 ## 1. Native HTTP Environment
 Ideal for generic Docker deployments or long running servers (VPS).
 ```go

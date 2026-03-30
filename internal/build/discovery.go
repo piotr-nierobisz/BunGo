@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/piotr-nierobisz/BunGo/internal/fileutil"
 	"github.com/piotr-nierobisz/BunGo/internal/theme"
 )
 
@@ -81,7 +82,7 @@ func discoverServerWebDirs(projectRoot string, entryDir string) ([]discoveredWeb
 				return true
 			}
 
-			webDir, keep := normalizeWebDirForEmbedding(rawValue, currentPath, projectRoot)
+			webDir, keep := normalizeWebDirForEmbedding(rawValue, projectRoot)
 			if keep {
 				if existingSource, exists := discovered[webDir.embedPath]; !exists || existingSource == "" {
 					discovered[webDir.embedPath] = webDir.sourceDir
@@ -133,7 +134,7 @@ func discoverServerWebDirs(projectRoot string, entryDir string) ([]discoveredWeb
 // - error: non-nil when the web dir is empty, outside project root, missing, or not a directory.
 func resolveManualWebDir(projectRoot string, manualWebDir string) ([]discoveredWebDir, error) {
 	rawWebDir := manualWebDir
-	trimmed := strings.TrimSpace(strings.ReplaceAll(rawWebDir, "\\", "/"))
+	trimmed := fileutil.NormalizeSlashPath(rawWebDir)
 	if trimmed == "" {
 		return nil, fmt.Errorf("manual web dir cannot be empty")
 	}
@@ -147,20 +148,18 @@ func resolveManualWebDir(projectRoot string, manualWebDir string) ([]discoveredW
 		if err != nil {
 			return nil, fmt.Errorf("resolving manual web dir %q failed: %w", rawWebDir, err)
 		}
-		relativeToRoot = filepath.ToSlash(relativeToRoot)
-		if relativeToRoot == "." || relativeToRoot == "" || relativeToRoot == ".." || strings.HasPrefix(relativeToRoot, "../") {
+		cleanedRelative, ok := fileutil.CleanProjectRelativePath(relativeToRoot)
+		if !ok {
 			return nil, fmt.Errorf("manual web dir %q must stay inside project root", rawWebDir)
 		}
-		embedPath = relativeToRoot
+		embedPath = cleanedRelative
 	} else {
-		trimmed = strings.TrimPrefix(trimmed, "./")
-		normalized := filepath.Clean(filepath.FromSlash(trimmed))
-		normalizedSlash := filepath.ToSlash(normalized)
-		if normalizedSlash == "." || normalizedSlash == "" || normalizedSlash == ".." || strings.HasPrefix(normalizedSlash, "../") {
+		cleanedRelative, ok := fileutil.CleanProjectRelativePath(trimmed)
+		if !ok {
 			return nil, fmt.Errorf("manual web dir %q must be a valid project-relative path", rawWebDir)
 		}
-		embedPath = normalizedSlash
-		sourceDir = filepath.Clean(filepath.Join(projectRoot, normalized))
+		embedPath = cleanedRelative
+		sourceDir = fileutil.JoinRootAndSlashPath(projectRoot, cleanedRelative)
 	}
 
 	info, err := os.Stat(sourceDir)
@@ -182,43 +181,34 @@ func resolveManualWebDir(projectRoot string, manualWebDir string) ([]discoveredW
 // normalizeWebDirForEmbedding resolves, validates, and normalizes a webDir literal for embedding.
 // Inputs:
 // - webDir: web directory literal value passed to NewServer in user code.
-// - sourceFilePath: Go source file path containing the NewServer call.
 // - projectRoot: root directory used as the allowed embedding boundary.
 // Outputs:
 // - discoveredWebDir: embed alias path plus absolute source directory on disk.
 // - bool: true when webDir can be embedded; false when it is empty, absolute, or escaping root.
-func normalizeWebDirForEmbedding(webDir, sourceFilePath, projectRoot string) (discoveredWebDir, bool) {
-	trimmed := strings.TrimSpace(strings.ReplaceAll(webDir, "\\", "/"))
-	if trimmed == "" {
-		return discoveredWebDir{}, false
-	}
-	if strings.HasPrefix(trimmed, "/") {
+func normalizeWebDirForEmbedding(webDir, projectRoot string) (discoveredWebDir, bool) {
+	trimmed := fileutil.NormalizeSlashPath(webDir)
+	if trimmed == "" || strings.HasPrefix(trimmed, "/") {
 		return discoveredWebDir{}, false
 	}
 
-	trimmed = strings.TrimPrefix(trimmed, "./")
-	cleanedEmbed := filepath.Clean(filepath.FromSlash(trimmed))
-	if cleanedEmbed == "." || cleanedEmbed == "" || cleanedEmbed == ".." {
-		return discoveredWebDir{}, false
-	}
-	if strings.HasPrefix(filepath.ToSlash(cleanedEmbed), "../") {
+	cleanedEmbed, ok := fileutil.CleanProjectRelativePath(trimmed)
+	if !ok {
 		return discoveredWebDir{}, false
 	}
 
-	candidateAbs := filepath.Join(filepath.Dir(sourceFilePath), cleanedEmbed)
-	candidateAbs = filepath.Clean(candidateAbs)
+	// Match dev/runtime behavior by resolving relative web roots from project root.
+	candidateAbs := fileutil.JoinRootAndSlashPath(projectRoot, cleanedEmbed)
 
 	relativeToRoot, err := filepath.Rel(projectRoot, candidateAbs)
 	if err != nil {
 		return discoveredWebDir{}, false
 	}
-	relativeToRoot = filepath.ToSlash(relativeToRoot)
-	if relativeToRoot == "." || relativeToRoot == "" || strings.HasPrefix(relativeToRoot, "../") || relativeToRoot == ".." {
+	if _, ok := fileutil.CleanProjectRelativePath(relativeToRoot); !ok {
 		return discoveredWebDir{}, false
 	}
 
 	return discoveredWebDir{
-		embedPath: filepath.ToSlash(cleanedEmbed),
+		embedPath: cleanedEmbed,
 		sourceDir: candidateAbs,
 	}, true
 }

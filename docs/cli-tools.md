@@ -44,6 +44,9 @@ bungo build
 # Build a specific entry package
 bungo build --entry ./cmd/server
 
+# Build from a specific entry file (BunGo normalizes this to the containing package)
+bungo build --entry ./cmd/server/main.go
+
 # Build to an explicit output path
 bungo build --output ./dist/my-app
 
@@ -51,7 +54,9 @@ bungo build --output ./dist/my-app
 bungo build --web-dir ./web
 ```
 
-By default, `bungo build` auto-discovers web roots by scanning your entry package for `NewServer(..., "webDir")` string literals, then falls back to `./web` when no match is found.  
+By default, `bungo build` auto-discovers web roots by scanning your entry package for `NewServer(..., "webDir")` string literals. Relative literals (for example `./web`) are resolved from the project root (the directory where you run `bungo build`), then BunGo falls back to `./web` when no match is found.  
+When `--entry` points to a `.go` file, BunGo builds the containing package so generated embed imports are linked correctly.
+If discovery resolves a path that does not exist, the build now fails with a clear error instead of producing a binary with empty embedded assets.
 When `--web-dir` is provided, this discovery step is skipped and BunGo embeds only that manually supplied root.
 
 Next: [Deployment](./deployment.md).

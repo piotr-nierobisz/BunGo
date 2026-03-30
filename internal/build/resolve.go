@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/piotr-nierobisz/BunGo/internal/fileutil"
 )
 
 // readModulePath extracts the Go module import path from go.mod.
@@ -66,6 +68,38 @@ func resolveEntryPackage(projectRoot string, entry string) (string, string, erro
 	return entryDir, entryPkgName, nil
 }
 
+// normalizeBuildEntryTarget converts a user entry into a package target safe for `go build`.
+// Inputs:
+// - projectRoot: project root directory used as the relative boundary for package targets.
+// - entry: original user-provided `--entry` value.
+// - entryDir: absolute filesystem directory returned by resolveEntryPackage for the entry package.
+// Outputs:
+// - string: normalized package-style build target (for example `.` or `./cmd/server`).
+// - error: non-nil when entryDir cannot be represented relative to projectRoot.
+func normalizeBuildEntryTarget(projectRoot string, entry string, entryDir string) (string, error) {
+	trimmedEntry := strings.TrimSpace(entry)
+	if trimmedEntry == "" {
+		return ".", nil
+	}
+	if !strings.HasSuffix(strings.ToLower(trimmedEntry), ".go") {
+		return entry, nil
+	}
+
+	relativeEntryDir, err := filepath.Rel(projectRoot, entryDir)
+	if err != nil {
+		return "", fmt.Errorf("normalizing file entry target failed: %w", err)
+	}
+	relativeEntryDir = fileutil.NormalizeSlashPath(relativeEntryDir)
+	if relativeEntryDir == "." {
+		return ".", nil
+	}
+	cleanedRelativeDir, ok := fileutil.CleanProjectRelativePath(relativeEntryDir)
+	if !ok {
+		return "", fmt.Errorf("file entry %q resolves outside project root", entry)
+	}
+	return "./" + strings.TrimPrefix(cleanedRelativeDir, "./"), nil
+}
+
 // resolveOutputPath returns an absolute output binary path and ensures the parent directory exists.
 // Inputs:
 // - projectRoot: project root used to resolve relative output paths.
@@ -76,10 +110,7 @@ func resolveEntryPackage(projectRoot string, entry string) (string, string, erro
 // - error: non-nil when output directory creation fails.
 func resolveOutputPath(projectRoot string, entry string, outputPath string) (string, error) {
 	if strings.TrimSpace(outputPath) == "" {
-		defaultBinaryName := filepath.Base(projectRoot)
-		if entry != "." {
-			defaultBinaryName = filepath.Base(filepath.Clean(entry))
-		}
+		defaultBinaryName := deriveDefaultBinaryName(projectRoot, entry)
 		outputPath = filepath.Join(projectRoot, "bin", defaultBinaryName)
 	} else if !filepath.IsAbs(outputPath) {
 		outputPath = filepath.Join(projectRoot, outputPath)
@@ -90,4 +121,26 @@ func resolveOutputPath(projectRoot string, entry string, outputPath string) (str
 	}
 
 	return outputPath, nil
+}
+
+// deriveDefaultBinaryName derives the default binary name from the build entry target.
+// Inputs:
+// - projectRoot: project root path used as fallback naming source.
+// - entry: user-provided build entry target.
+// Outputs:
+// - string: default binary file name without directory components.
+func deriveDefaultBinaryName(projectRoot string, entry string) string {
+	if strings.TrimSpace(entry) == "" || entry == "." {
+		return filepath.Base(projectRoot)
+	}
+
+	cleanEntry := filepath.Clean(entry)
+	baseName := filepath.Base(cleanEntry)
+	if strings.HasSuffix(strings.ToLower(baseName), ".go") {
+		withoutExt := strings.TrimSuffix(baseName, filepath.Ext(baseName))
+		if strings.TrimSpace(withoutExt) != "" {
+			return withoutExt
+		}
+	}
+	return baseName
 }

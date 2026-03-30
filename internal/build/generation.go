@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	bungo "github.com/piotr-nierobisz/BunGo"
+	"github.com/piotr-nierobisz/BunGo/internal/fileutil"
 	"github.com/piotr-nierobisz/BunGo/internal/theme"
 )
 
@@ -22,7 +22,7 @@ import (
 // - string: module import path for the generated package.
 // - func(): cleanup callback removing generated package files.
 // - error: non-nil when generation or directory copy operations fail.
-func generateEmbeddedAssetsPackage(projectRoot string, modulePath string, webDirs []discoveredWebDir) (string, string, func(), error) {
+func generateEmbeddedAssetsPackage(projectRoot, modulePath string, webDirs []discoveredWebDir) (string, string, func(), error) {
 	packageDir, err := os.MkdirTemp(projectRoot, "bungo_embed_gen_")
 	if err != nil {
 		return "", "", func() {}, err
@@ -34,12 +34,18 @@ func generateEmbeddedAssetsPackage(projectRoot string, modulePath string, webDir
 	assetDirs := make([]string, 0, len(webDirs))
 	for _, webDir := range webDirs {
 		sourceDir := webDir.sourceDir
-		if info, statErr := os.Stat(sourceDir); statErr != nil || !info.IsDir() {
-			continue
+		info, statErr := os.Stat(sourceDir)
+		if statErr != nil {
+			cleanup()
+			return "", "", func() {}, fmt.Errorf("discovered web dir %q is not accessible: %w", sourceDir, statErr)
+		}
+		if !info.IsDir() {
+			cleanup()
+			return "", "", func() {}, fmt.Errorf("discovered web dir %q is not a directory", sourceDir)
 		}
 
 		targetDir := filepath.Join(packageDir, filepath.FromSlash(webDir.embedPath))
-		if copyErr := bungo.CopyFSTreeToDir(os.DirFS(sourceDir), ".", targetDir); copyErr != nil {
+		if copyErr := fileutil.CopyFSTreeToDir(os.DirFS(sourceDir), ".", targetDir); copyErr != nil {
 			cleanup()
 			return "", "", func() {}, copyErr
 		}

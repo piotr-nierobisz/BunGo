@@ -96,9 +96,10 @@ func newDevCommand() *cobra.Command {
 				return err
 			}
 
-			runRoot, runTarget, err := dev.ResolveRunContext(root, entry)
-			if err != nil {
-				return err
+			runRoot := root
+			runTarget := entry
+			if runTarget == "" {
+				runTarget = "."
 			}
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)

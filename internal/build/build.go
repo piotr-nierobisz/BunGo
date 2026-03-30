@@ -16,7 +16,7 @@ type ProgressFunc func(stage string, detail string)
 // Inputs:
 // - out: destination writer receiving formatted progress and final success lines.
 // - projectRoot: absolute project root directory where `go.mod` is located.
-// - entry: `go build` package target, such as `.` or `./cmd/server`.
+// - entry: `go build` entry target, such as `.`, `./cmd/server`, or `cmd/server/main.go`.
 // - outputPath: optional explicit output path; empty uses `./bin/<entry-name>`.
 // - manualWebDir: optional web root supplied by CLI `--web-dir`; when non-empty auto-discovery is skipped.
 // Outputs:
@@ -39,7 +39,7 @@ func Run(out io.Writer, projectRoot string, entry string, outputPath string, man
 // executeBuildPipeline executes the BunGo build pipeline and optionally reports progress.
 // Inputs:
 // - projectRoot: absolute project root directory where `go.mod` is located.
-// - entry: `go build` package target, such as `.` or `./cmd/server`.
+// - entry: `go build` entry target, such as `.`, `./cmd/server`, or `cmd/server/main.go`.
 // - outputPath: optional explicit output path; empty uses `./bin/<entry-name>`.
 // - manualWebDir: optional web root supplied by CLI `--web-dir`; when non-empty auto-discovery is skipped.
 // - progress: optional callback receiving stage and detail messages during build execution.
@@ -59,6 +59,10 @@ func executeBuildPipeline(projectRoot, entry, outputPath string, manualWebDir st
 
 	progress("entry", theme.EN.Build.StepEntry)
 	entryDir, entryPkgName, err := resolveEntryPackage(projectRoot, entry)
+	if err != nil {
+		return "", err
+	}
+	normalizedBuildTarget, err := normalizeBuildEntryTarget(projectRoot, entry, entryDir)
 	if err != nil {
 		return "", err
 	}
@@ -98,7 +102,7 @@ func executeBuildPipeline(projectRoot, entry, outputPath string, manualWebDir st
 	defer cleanupImportFile()
 
 	progress("compile", theme.EN.Build.StepCompile)
-	if err := runGoBuild(projectRoot, entry, resolvedOutputPath); err != nil {
+	if err := runGoBuild(projectRoot, normalizedBuildTarget, resolvedOutputPath); err != nil {
 		return "", err
 	}
 

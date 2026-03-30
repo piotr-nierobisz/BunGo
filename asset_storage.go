@@ -6,6 +6,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/piotr-nierobisz/BunGo/internal/fileutil"
 )
 
 // AssetStorage provides a unified web asset reader with memory-first and disk-fallback lookups.
@@ -28,10 +30,10 @@ func newAssetStorage(webDir string, memoryFS fs.FS) *AssetStorage {
 		diskDir: webDir,
 	}
 
-	trimmed := strings.TrimSpace(strings.ReplaceAll(webDir, "\\", "/"))
-	trimmed = strings.TrimPrefix(trimmed, "./")
-	trimmed = strings.TrimPrefix(trimmed, "/")
-	memoryRoot := path.Clean(trimmed)
+	memoryRoot, ok := fileutil.CleanRelativeSlashPath(webDir)
+	if !ok {
+		memoryRoot = "."
+	}
 	if memoryFS != nil && memoryRoot != "" {
 		if memoryRoot != "." && memoryRoot != ".." && !strings.HasPrefix(memoryRoot, "../") {
 			if info, err := fs.Stat(memoryFS, memoryRoot); err == nil && info.IsDir() {
@@ -68,7 +70,7 @@ func (s *AssetStorage) Exists(relativePath string) bool {
 		return false
 	}
 
-	cleanPath, ok := cleanRelativeAssetPath(relativePath)
+	cleanPath, ok := fileutil.CleanRelativeSlashPath(relativePath)
 	if !ok {
 		return false
 	}
@@ -100,7 +102,7 @@ func (s *AssetStorage) ReadFile(relativePath string) ([]byte, error) {
 		return nil, os.ErrNotExist
 	}
 
-	cleanPath, ok := cleanRelativeAssetPath(relativePath)
+	cleanPath, ok := fileutil.CleanRelativeSlashPath(relativePath)
 	if !ok {
 		return nil, os.ErrNotExist
 	}
@@ -127,7 +129,7 @@ func (s *AssetStorage) ReadFile(relativePath string) ([]byte, error) {
 // - []byte: resolved static file bytes from memory-first, disk-fallback storage.
 // - error: non-nil when requestPath is invalid or the static file is not found.
 func (s *AssetStorage) ReadStaticFile(requestPath string) ([]byte, error) {
-	cleanPath, ok := cleanRelativeAssetPath(path.Join("static", requestPath))
+	cleanPath, ok := fileutil.CleanRelativeSlashPath(path.Join("static", requestPath))
 	if !ok {
 		return nil, os.ErrNotExist
 	}
@@ -165,72 +167,10 @@ func (s *AssetStorage) PrepareWebDirForBuild() (string, func(), error) {
 		return "", func() {}, err
 	}
 
-	if err := CopyFSTreeToDir(s.memoryFS, s.memoryWebRoot, targetWebDir); err != nil {
+	if err := fileutil.CopyFSTreeToDir(s.memoryFS, s.memoryWebRoot, targetWebDir); err != nil {
 		cleanup()
 		return "", func() {}, err
 	}
 
 	return targetWebDir, cleanup, nil
-}
-
-// cleanRelativeAssetPath normalizes and validates a web-root relative asset path.
-// Inputs:
-// - relativePath: asset path to normalize and validate.
-// Outputs:
-// - string: cleaned slash-separated path safe for lookup inside the web root.
-// - bool: true when the path is valid and safe; false when it escapes the root.
-func cleanRelativeAssetPath(relativePath string) (string, bool) {
-	trimmed := strings.TrimSpace(strings.ReplaceAll(relativePath, "\\", "/"))
-	trimmed = strings.TrimPrefix(trimmed, "/")
-	if trimmed == "" {
-		return "", false
-	}
-
-	cleaned := path.Clean(trimmed)
-	if cleaned == "." || cleaned == "/" {
-		return "", false
-	}
-	if strings.HasPrefix(cleaned, "../") || cleaned == ".." {
-		return "", false
-	}
-
-	return cleaned, true
-}
-
-// CopyFSTreeToDir recursively copies one fs subtree into a destination directory on disk.
-// Inputs:
-// - sourceFS: filesystem containing the source tree to copy.
-// - sourceRoot: root path inside sourceFS to walk and copy.
-// - targetDir: destination directory path on disk.
-// Outputs:
-// - error: non-nil when walking, reading, creating directories, or writing files fails.
-func CopyFSTreeToDir(sourceFS fs.FS, sourceRoot string, targetDir string) error {
-	root := strings.TrimSpace(strings.ReplaceAll(sourceRoot, "\\", "/"))
-	if root == "" {
-		root = "."
-	}
-	root = path.Clean(root)
-
-	return fs.WalkDir(sourceFS, root, func(currentPath string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-
-		relative := strings.TrimPrefix(currentPath, root)
-		relative = strings.TrimPrefix(relative, "/")
-		targetPath := filepath.Join(targetDir, filepath.FromSlash(relative))
-
-		if entry.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
-		}
-
-		data, readErr := fs.ReadFile(sourceFS, currentPath)
-		if readErr != nil {
-			return readErr
-		}
-		if mkErr := os.MkdirAll(filepath.Dir(targetPath), 0755); mkErr != nil {
-			return mkErr
-		}
-		return os.WriteFile(targetPath, data, 0644)
-	})
 }

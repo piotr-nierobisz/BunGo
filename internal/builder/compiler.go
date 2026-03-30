@@ -7,6 +7,7 @@ import (
 
 	"github.com/evanw/esbuild/pkg/api"
 	bungo "github.com/piotr-nierobisz/BunGo"
+	"github.com/piotr-nierobisz/BunGo/internal/fileutil"
 )
 
 // CompilePages bundles page view entries and returns lookup maps for inline and optimized delivery.
@@ -22,7 +23,7 @@ func CompilePages(pages map[string]bungo.PageRoute, webDir string) (map[string]s
 	seen := make(map[string]struct{})
 	for _, page := range pages {
 		if page.View != "" {
-			outputBase := strings.TrimSuffix(filepath.ToSlash(page.View), filepath.Ext(page.View))
+			outputBase := strings.TrimSuffix(fileutil.NormalizeSlashPath(page.View), filepath.Ext(page.View))
 			if _, ok := seen[outputBase]; ok {
 				continue
 			}
@@ -65,14 +66,14 @@ func CompilePages(pages map[string]bungo.PageRoute, webDir string) (map[string]s
 	outputByPath := make(map[string]string)
 
 	for _, file := range result.OutputFiles {
-		outputPath := strings.TrimPrefix(filepath.ToSlash(file.Path), "/")
+		outputPath := strings.TrimPrefix(fileutil.NormalizeSlashPath(file.Path), "/")
 		outputByPath[outputPath] = string(file.Contents)
 	}
 
 	// Map each page view path to its corresponding compiled JavaScript string.
 	for _, page := range pages {
 		if page.View != "" {
-			outputPath := strings.TrimSuffix(filepath.ToSlash(page.View), filepath.Ext(page.View)) + ".js"
+			outputPath := strings.TrimSuffix(fileutil.NormalizeSlashPath(page.View), filepath.Ext(page.View)) + ".js"
 			if js, ok := outputByPath[outputPath]; ok {
 				compiledMap[page.View] = js
 				optimizedMap[bungo.OptimizedAssetPath(page.View)] = js
