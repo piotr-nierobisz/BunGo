@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/GoogleCloudPlatform/functions-framework-go v1.9.2
-	github.com/piotr-nierobisz/BunGo v0.2.0
+	github.com/piotr-nierobisz/BunGo v0.3.0
 )
 
 require (

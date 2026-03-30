@@ -3,10 +3,8 @@ package engine
 import (
 	"encoding/json"
 	"net/http"
-	"path/filepath"
 
 	bungo "github.com/piotr-nierobisz/BunGo"
-	"github.com/piotr-nierobisz/BunGo/internal/builder"
 )
 
 // createAPIHandler creates a net/http handler for one configured API route.
@@ -90,25 +88,10 @@ func (e *HTTPEngine) createPageHandler(srv *bungo.Server, route *bungo.PageRoute
 			pageData = data
 		}
 
-		templatePath := filepath.Join(srv.WebDir, "layouts", route.Template)
-		// Resolve layout: per-route Layout overrides DefaultLayout; empty means standalone template.
-		layoutPath := ""
-		if route.Layout != "" {
-			layoutPath = filepath.Join(srv.WebDir, "layouts", route.Layout)
-		} else if srv.DefaultLayout != "" {
-			layoutPath = filepath.Join(srv.WebDir, "layouts", srv.DefaultLayout)
-		}
-		var inlineJS string
-		var moduleSrc string
-		if route.View != "" {
-			if srv.AssetOptimizationEnabled() {
-				moduleSrc = builder.OptimizedAssetPath(route.View)
-			} else {
-				inlineJS = e.compiledViews[route.View]
-			}
-		}
+		templatePath, layoutPath := srv.ResolvePageTemplatePaths(route)
+		inlineJS, moduleSrc := srv.ResolvePageScriptAssets(route, e.compiledViews)
 
-		htmlOutput, err := bungo.RenderTemplate(templatePath, layoutPath, inlineJS, moduleSrc, pageData)
+		htmlOutput, err := bungo.RenderTemplate(srv.AssetStorage(), templatePath, layoutPath, inlineJS, moduleSrc, pageData)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

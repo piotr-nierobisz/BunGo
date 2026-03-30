@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"os"
-	"path/filepath"
+	"path"
 	"strings"
 )
 
@@ -147,8 +147,9 @@ func injectScripts(html string, injection string) string {
 
 // RenderTemplate renders a page template, optionally composed inside a layout template.
 // Inputs:
-// - templatePath: required path to the page-specific .gohtml template file.
-// - layoutPath: optional wrapper .gohtml path that defines {{block "content" .}}.
+// - assetStorage: server asset storage used to resolve template/layout files.
+// - templatePath: required web-root-relative path to the page-specific .gohtml template file.
+// - layoutPath: optional web-root-relative wrapper .gohtml path defining {{block "content" .}}.
 // - inlineJS: compiled JavaScript source to inject inline as a module script.
 // - moduleSrc: optional static module URL injected when asset optimization is enabled.
 // - data: template data passed to Execute after BunGo script fields are merged in.
@@ -156,6 +157,7 @@ func injectScripts(html string, injection string) string {
 // - string: fully rendered HTML with BunGo data/scripts injected into template output.
 // - error: non-nil when template files cannot be read, parsed, or executed.
 func RenderTemplate(
+	assetStorage *AssetStorage,
 	templatePath string,
 	layoutPath string,
 	inlineJS string,
@@ -166,12 +168,12 @@ func RenderTemplate(
 
 	if layoutPath == "" {
 		// Standalone page: single template, inject scripts and execute.
-		templateBytes, err := os.ReadFile(templatePath)
+		templateBytes, err := assetStorage.ReadFile(templatePath)
 		if err != nil {
 			return "", err
 		}
 		html := injectScripts(string(templateBytes), injection)
-		tmpl, err := template.New(filepath.Base(templatePath)).Parse(html)
+		tmpl, err := template.New(path.Base(templatePath)).Parse(html)
 		if err != nil {
 			return "", err
 		}
@@ -183,19 +185,19 @@ func RenderTemplate(
 	}
 
 	// Layout composition: parse layout (with scripts injected) and template, then execute layout.
-	layoutBytes, err := os.ReadFile(layoutPath)
+	layoutBytes, err := assetStorage.ReadFile(layoutPath)
 	if err != nil {
 		return "", err
 	}
 	layoutStr := injectScripts(string(layoutBytes), injection)
 
-	templateBytes, err := os.ReadFile(templatePath)
+	templateBytes, err := assetStorage.ReadFile(templatePath)
 	if err != nil {
 		return "", err
 	}
 	templateStr := string(templateBytes)
 
-	layoutName := filepath.Base(layoutPath)
+	layoutName := path.Base(layoutPath)
 	tmpl, err := template.New(layoutName).Parse(layoutStr)
 	if err != nil {
 		return "", err

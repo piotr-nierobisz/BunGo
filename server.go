@@ -2,8 +2,8 @@ package bungo
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Invoker represents the execution environment starting the server.
@@ -21,6 +21,7 @@ type Server struct {
 	WebDir         string
 	DefaultLayout  string
 	optimizeAssets bool
+	assetStorage   *AssetStorage
 }
 
 // NewServer creates a Server and validates required web directory structure at startup.
@@ -31,17 +32,26 @@ type Server struct {
 // - *Server: initialized server registry with empty route and security maps.
 func NewServer(engine Engine, webDir string) *Server {
 	if webDir != "" {
+		storage := newAssetStorage(webDir, getEmbeddedAssetsFS())
+
 		// Fail-fast architecture check
-		if _, err := os.Stat(webDir); os.IsNotExist(err) {
+		if !storage.Exists("") {
 			panic(fmt.Sprintf("BunGo Startup Error: Base web directory '%s' does not exist.", webDir))
 		}
-
-		if _, err := os.Stat(filepath.Join(webDir, "layouts")); os.IsNotExist(err) {
+		if !storage.Exists("layouts") {
 			panic(fmt.Sprintf("BunGo Startup Error: 'layouts' subdirectory must exist inside '%s'.", webDir))
 		}
-
-		if _, err := os.Stat(filepath.Join(webDir, "views")); os.IsNotExist(err) {
+		if !storage.Exists("views") {
 			panic(fmt.Sprintf("BunGo Startup Error: 'views' subdirectory must exist inside '%s'.", webDir))
+		}
+
+		return &Server{
+			Pages:          make(map[string]PageRoute),
+			APIs:           make(map[string]ApiRoute),
+			SecurityLayers: make(map[string]SecurityLayer),
+			Engine:         engine,
+			WebDir:         webDir,
+			assetStorage:   storage,
 		}
 	}
 
@@ -51,6 +61,7 @@ func NewServer(engine Engine, webDir string) *Server {
 		SecurityLayers: make(map[string]SecurityLayer),
 		Engine:         engine,
 		WebDir:         webDir,
+		assetStorage:   newAssetStorage(webDir, getEmbeddedAssetsFS()),
 	}
 }
 
@@ -63,18 +74,18 @@ func (s *Server) Page(route PageRoute) {
 	if route.Template == "" {
 		panic("BunGo Routing Error: PageRoute.Template is required and cannot be empty.")
 	}
-	if _, err := os.Stat(filepath.Join(s.WebDir, "layouts", route.Template)); os.IsNotExist(err) {
+	if !s.assetStorage.Exists(s.pageTemplatePath(&route)) {
 		panic(fmt.Sprintf("BunGo Routing Error: Template file '%s' does not exist in the defined layouts directory.", route.Template))
 	}
 
 	if route.Layout != "" {
-		if _, err := os.Stat(filepath.Join(s.WebDir, "layouts", route.Layout)); os.IsNotExist(err) {
+		if !s.assetStorage.Exists(s.pageLayoutPath(&route)) {
 			panic(fmt.Sprintf("BunGo Routing Error: Layout file '%s' does not exist in the defined layouts directory.", route.Layout))
 		}
 	}
 
 	if route.View != "" {
-		if _, err := os.Stat(filepath.Join(s.WebDir, "views", route.View)); os.IsNotExist(err) {
+		if !s.assetStorage.Exists(s.pageViewPath(&route)) {
 			panic(fmt.Sprintf("BunGo Routing Error: View file '%s' does not exist in the defined views directory.", route.View))
 		}
 	}
@@ -93,7 +104,7 @@ func (s *Server) SetDefaultLayout(path string) {
 		return
 	}
 	if s.WebDir != "" {
-		if _, err := os.Stat(filepath.Join(s.WebDir, "layouts", path)); os.IsNotExist(err) {
+		if !s.assetStorage.Exists("layouts/" + path) {
 			panic(fmt.Sprintf("BunGo Routing Error: DefaultLayout file '%s' does not exist in the defined layouts directory.", path))
 		}
 	}
@@ -116,6 +127,15 @@ func (s *Server) SetAssetOptimization(enabled bool) {
 // - bool: true when SetAssetOptimization enabled external /_bungo bundle serving.
 func (s *Server) AssetOptimizationEnabled() bool {
 	return s.optimizeAssets
+}
+
+// AssetStorage returns the server storage abstraction for memory-first and disk-fallback web asset access.
+// Inputs:
+// - none
+// Outputs:
+// - *AssetStorage: server asset storage used by engines, template rendering, and builders.
+func (s *Server) AssetStorage() *AssetStorage {
+	return s.assetStorage
 }
 
 // Api registers an API route in the server route registry.
@@ -144,4 +164,77 @@ func (s *Server) Security(layer SecurityLayer) {
 func (s *Server) Serve(port int) error {
 	address := fmt.Sprintf(":%d", port)
 	return s.Engine.Start(address, s)
+}
+
+// ResolvePageTemplatePaths returns template and layout asset paths relative to the configured web root.
+// Inputs:
+// - route: page route whose template and optional layout should be resolved.
+// Outputs:
+// - string: required template asset path relative to web root.
+// - string: optional layout asset path relative to web root, or empty when no layout applies.
+func (s *Server) ResolvePageTemplatePaths(route *PageRoute) (string, string) {
+	templatePath := s.pageTemplatePath(route)
+	layoutPath := ""
+	if route.Layout != "" {
+		layoutPath = s.pageLayoutPath(route)
+	} else if s.DefaultLayout != "" {
+		layoutPath = "layouts/" + s.DefaultLayout
+	}
+	return templatePath, layoutPath
+}
+
+// ResolvePageScriptAssets resolves inline/module script values for one page route render.
+// Inputs:
+// - route: page route whose optional view determines script asset injection values.
+// - compiledViews: map of compiled view source keyed by original route View value.
+// Outputs:
+// - string: inline JavaScript payload when asset optimization is disabled.
+// - string: module source URL when asset optimization is enabled.
+func (s *Server) ResolvePageScriptAssets(route *PageRoute, compiledViews map[string]string) (string, string) {
+	if route.View == "" {
+		return "", ""
+	}
+	if s.AssetOptimizationEnabled() {
+		return "", OptimizedAssetPath(route.View)
+	}
+	return compiledViews[route.View], ""
+}
+
+// pageTemplatePath converts a page route template name into a web-root relative path.
+// Inputs:
+// - route: page route providing the template filename.
+// Outputs:
+// - string: `layouts/...` relative asset path for the page template.
+func (s *Server) pageTemplatePath(route *PageRoute) string {
+	return "layouts/" + route.Template
+}
+
+// pageLayoutPath converts a page route layout name into a web-root relative path.
+// Inputs:
+// - route: page route providing the optional layout filename.
+// Outputs:
+// - string: `layouts/...` relative asset path for the page layout.
+func (s *Server) pageLayoutPath(route *PageRoute) string {
+	return "layouts/" + route.Layout
+}
+
+// pageViewPath converts a page route view name into a web-root relative path.
+// Inputs:
+// - route: page route providing the optional view filename.
+// Outputs:
+// - string: `views/...` relative asset path for the page view entry.
+func (s *Server) pageViewPath(route *PageRoute) string {
+	return "views/" + route.View
+}
+
+// OptimizedAssetPath converts a route view path into the optimized `/_bungo/*.js` route.
+// Inputs:
+// - view: page route view path relative to `views/`.
+// Outputs:
+// - string: optimized JavaScript asset route path.
+func OptimizedAssetPath(view string) string {
+	withoutExt := strings.TrimSuffix(view, filepath.Ext(view))
+	normalized := strings.ReplaceAll(withoutExt, "\\", "/")
+	normalized = strings.TrimPrefix(normalized, "/")
+	return "/_bungo/" + normalized + ".js"
 }

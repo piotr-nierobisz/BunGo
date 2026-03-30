@@ -19,8 +19,27 @@ type cliLocale struct {
 
 	DevShort            string
 	DevLong             string
+	BuildShort          string
+	BuildLong           string
 	FlagEntry           string
+	FlagOutput          string
+	FlagWebDir          string
 	ErrGoModNotFoundFmt string
+}
+
+type buildLocale struct {
+	SuccessFmt    string
+	PipelineTitle string
+	MetaFmt       string
+	OutputDefault string
+	Separator     string
+	StepReadGoMod string
+	StepEntry     string
+	StepOutput    string
+	StepDiscover  string
+	StepGenerate  string
+	StepLink      string
+	StepCompile   string
 }
 
 type devUILocale struct {
@@ -59,6 +78,7 @@ type scaffoldLocale struct {
 // when nested values use keyed literals (anonymous outer structs + nested literals can confuse older parsers).
 type localeBundle struct {
 	CLI      cliLocale
+	Build    buildLocale
 	Dev      devLocale
 	Scaffold scaffoldLocale
 }
@@ -70,7 +90,7 @@ var EN = localeBundle{
 		RootHelpBodyFmt:     "%s\n%s\n\n%s\n%s",
 		RootVersionReactFmt: "Version: %s | React Runtime: %s",
 		RootHelpParagraph1:  "BunGo empowers you to build full-stack Go web apps with embedded React in seconds.",
-		RootHelpParagraph2:  "Use it to scaffold new projects and run the lightning-fast development server.",
+		RootHelpParagraph2:  "Use it to scaffold new projects, run lightning-fast dev mode, and build portable single binaries.",
 		RootBannerTitle:     "🚀 BunGo CLI",
 
 		InitShort:       "Scaffold a new BunGo project",
@@ -82,8 +102,26 @@ var EN = localeBundle{
 
 		DevShort:            "Start the BunGo development server",
 		DevLong:             "Starts a hot-reloading development server that watches your Go and React files, automatically rebuilding and refreshing the browser on changes.",
+		BuildShort:          "Build a portable BunGo binary",
+		BuildLong:           "Builds your Go entry package and auto-embeds BunGo web assets (layouts, views, and static) into the output binary.",
 		FlagEntry:           "Go entry target passed to `go run` (for example `.` or `./cmd/server`)",
+		FlagOutput:          "Output binary path (default: ./bin/<entry-name>)",
+		FlagWebDir:          "Web asset root to embed manually; disables auto-discovery when set",
 		ErrGoModNotFoundFmt: "❌ Error: go.mod not found in %s. Please run `bungo dev` from the root of your project",
+	},
+	Build: buildLocale{
+		SuccessFmt:    "✅ BunGo build complete: %s",
+		PipelineTitle: "⚙️  BunGo build pipeline",
+		MetaFmt:       "entry=%s output=%s",
+		OutputDefault: "<default>",
+		Separator:     "────────────",
+		StepReadGoMod: "Reading go.mod",
+		StepEntry:     "Resolving entry package",
+		StepOutput:    "Resolving output path",
+		StepDiscover:  "Discovering BunGo web roots",
+		StepGenerate:  "Generating temporary embed package",
+		StepLink:      "Linking generated package into entry",
+		StepCompile:   "Running go build",
 	},
 	Dev: devLocale{
 		AppExitWithErrFmt:  "App process exited: %v\n",

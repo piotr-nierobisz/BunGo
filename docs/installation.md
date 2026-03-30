@@ -14,17 +14,12 @@ You can instantly scaffold a fresh BunGo application using our dedicated CLI too
    go install github.com/piotr-nierobisz/BunGo/cmd/bungo@latest
    ```
 
-2. Scaffold a generic React/JavaScript application:
+2. Scaffold a generic React application (for TypesScript variant add --typescript to init command):
    ```bash
    bungo init my-project
    cd my-project
    go mod tidy
    bungo dev
-   ```
-
-3. (Optional) Scaffold a React/TypeScript application:
-   ```bash
-   bungo init my-project --typescript
    ```
 
 ![BunGo Client](./assets/bungo-cli.gif)
@@ -46,13 +41,12 @@ If you're migrating an existing Go project or prefer absolute control:
 3. Create the mandatory directory structure:
    ```text
    myapp/
-   ├── main.go
    └── web/
        ├── layouts/   # required for HTML templates
        ├── views/     # required for React components
        └── static/    # optional: served at /static/
    ```
 
-> **Warning:** BunGo strictly expects the `web/layouts` and `web/views` folders to exist on server startup; if missing, your application will panic at boot to fail-fast.
+> **Warning:** During normal source-based runs, BunGo strictly expects the `web/layouts` and `web/views` folders to exist on startup; if missing, your application will panic to fail-fast. When built via `bungo build`, these assets are embedded into the binary and loaded from memory first.
 
 Next, read about [Routing and Pages](./routing-and-pages.md).

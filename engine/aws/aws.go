@@ -4,8 +4,10 @@ package engine_aws
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -57,7 +59,7 @@ func (e *LambdaEngine) Start(address string, srv *bungo.Server) error {
 // - error: non-nil when view compilation fails.
 func (e *LambdaEngine) initHandler(srv *bungo.Server) (func(context.Context, events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error), error) {
 	if srv.WebDir != "" {
-		compiledMap, optimizedMap, err := builder.CompilePages(srv.Pages, srv.WebDir)
+		compiledMap, optimizedMap, err := builder.CompilePagesFromStorage(srv.Pages, srv.AssetStorage())
 		if err != nil {
 			return nil, err
 		}
@@ -105,6 +107,26 @@ func (e *LambdaEngine) dispatch(req events.APIGatewayV2HTTPRequest, srv *bungo.S
 
 	// Page routes: GET only, exact path
 	if method == http.MethodGet {
+		if strings.HasPrefix(path, "/static/") && srv.AssetStorage().Exists("static") {
+			relative := strings.TrimPrefix(path, "/static/")
+			content, err := srv.AssetStorage().ReadStaticFile(relative)
+			if err != nil {
+				return e.response(http.StatusNotFound, "text/plain", "Not Found"), nil
+			}
+
+			contentType := mime.TypeByExtension(filepath.Ext(strings.ToLower(relative)))
+			if contentType == "" {
+				contentType = http.DetectContentType(content)
+			}
+
+			return events.APIGatewayV2HTTPResponse{
+				StatusCode:      http.StatusOK,
+				IsBase64Encoded: true,
+				Headers:         map[string]string{"Content-Type": contentType},
+				Body:            base64.StdEncoding.EncodeToString(content),
+			}, nil
+		}
+
 		if srv.AssetOptimizationEnabled() && strings.HasPrefix(path, "/_bungo/") {
 			if js, ok := e.optimizedAssets[path]; ok {
 				return events.APIGatewayV2HTTPResponse{
@@ -175,23 +197,9 @@ func (e *LambdaEngine) handlePage(breq *bungo.Request, route *bungo.PageRoute, s
 		}
 		pageData = data
 	}
-	templatePath := filepath.Join(srv.WebDir, "layouts", route.Template)
-	layoutPath := ""
-	if route.Layout != "" {
-		layoutPath = filepath.Join(srv.WebDir, "layouts", route.Layout)
-	} else if srv.DefaultLayout != "" {
-		layoutPath = filepath.Join(srv.WebDir, "layouts", srv.DefaultLayout)
-	}
-	var inlineJS string
-	var moduleSrc string
-	if route.View != "" {
-		if srv.AssetOptimizationEnabled() {
-			moduleSrc = builder.OptimizedAssetPath(route.View)
-		} else {
-			inlineJS = e.compiledViews[route.View]
-		}
-	}
-	htmlOutput, err := bungo.RenderTemplate(templatePath, layoutPath, inlineJS, moduleSrc, pageData)
+	templatePath, layoutPath := srv.ResolvePageTemplatePaths(route)
+	inlineJS, moduleSrc := srv.ResolvePageScriptAssets(route, e.compiledViews)
+	htmlOutput, err := bungo.RenderTemplate(srv.AssetStorage(), templatePath, layoutPath, inlineJS, moduleSrc, pageData)
 	if err != nil {
 		return e.response(http.StatusInternalServerError, "text/plain", err.Error()), nil
 	}

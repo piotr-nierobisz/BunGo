@@ -41,6 +41,9 @@ You can instantly scaffold a fresh BunGo application using our dedicated CLI too
    
    # Starts your server and continuously hot-reloads on changes!
    bungo dev
+
+   # Builds a portable production binary in ./bin/
+   bungo build
    ```
 *(For a native TypeScript integration, add `--typescript` to the init command).*
 
@@ -56,5 +59,7 @@ For manual project setups without the CLI, [refer to the Installation Guide](./d
 - [x] Allow for in browser optimisation by serving minified JS separate to the template 
 - [x] Live reload for development (`bungo dev`)
 - [x] More comments!
-- [ ] Add support for net/http ssl
+- [x] Add support for net/http ssl
 - [ ] Add a template function to auto-inject jsx/tsx files e.g {{ bungoView "showcase.tsx" . }}
+- [x] Add `bungo build` single-binary production packaging
+- [ ] Add warnings and logging to the library

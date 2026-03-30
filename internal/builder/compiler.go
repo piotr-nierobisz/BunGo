@@ -9,18 +9,6 @@ import (
 	bungo "github.com/piotr-nierobisz/BunGo"
 )
 
-// OptimizedAssetPath converts a view entry path into the cacheable optimized asset route.
-// Inputs:
-// - view: view entry path relative to the views directory, including extension.
-// Outputs:
-// - string: normalized `/_bungo/...js` route used for optimized asset serving.
-func OptimizedAssetPath(view string) string {
-	withoutExt := strings.TrimSuffix(view, filepath.Ext(view))
-	normalized := strings.ReplaceAll(withoutExt, "\\", "/")
-	normalized = strings.TrimPrefix(normalized, "/")
-	return "/_bungo/" + normalized + ".js"
-}
-
 // CompilePages bundles page view entries and returns lookup maps for inline and optimized delivery.
 // Inputs:
 // - pages: registered page routes keyed by path, used to discover unique view entry files.
@@ -87,10 +75,32 @@ func CompilePages(pages map[string]bungo.PageRoute, webDir string) (map[string]s
 			outputPath := strings.TrimSuffix(filepath.ToSlash(page.View), filepath.Ext(page.View)) + ".js"
 			if js, ok := outputByPath[outputPath]; ok {
 				compiledMap[page.View] = js
-				optimizedMap[OptimizedAssetPath(page.View)] = js
+				optimizedMap[bungo.OptimizedAssetPath(page.View)] = js
 			}
 		}
 	}
 
 	return compiledMap, optimizedMap, nil
+}
+
+// CompilePagesFromStorage bundles page view entries using server storage and temporary extraction when needed.
+// Inputs:
+// - pages: registered page routes keyed by path, used to discover unique view entry files.
+// - storage: server asset storage that can provide a buildable disk web directory.
+// Outputs:
+// - map[string]string: bundled JavaScript keyed by original view entry path.
+// - map[string]string: bundled JavaScript keyed by optimized `/_bungo/...js` asset path.
+// - error: non-nil when preparing build assets or running esbuild fails.
+func CompilePagesFromStorage(pages map[string]bungo.PageRoute, storage *bungo.AssetStorage) (map[string]string, map[string]string, error) {
+	if storage == nil {
+		return map[string]string{}, map[string]string{}, nil
+	}
+
+	webDir, cleanup, err := storage.PrepareWebDirForBuild()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer cleanup()
+
+	return CompilePages(pages, webDir)
 }

@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/charmbracelet/lipgloss"
+	internalbuild "github.com/piotr-nierobisz/BunGo/internal/build"
 	"github.com/piotr-nierobisz/BunGo/internal/dev"
 	"github.com/piotr-nierobisz/BunGo/internal/scaffold"
 	"github.com/piotr-nierobisz/BunGo/internal/theme"
@@ -36,6 +37,7 @@ func main() {
 
 	rootCmd.AddCommand(newInitCommand())
 	rootCmd.AddCommand(newDevCommand())
+	rootCmd.AddCommand(newBuildCommand())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -90,23 +92,77 @@ func newDevCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := ensureGoModExists(root); err != nil {
+				return err
+			}
 
-			goModPath := filepath.Join(root, "go.mod")
-			if _, err := os.Stat(goModPath); err != nil {
-				if os.IsNotExist(err) {
-					return fmt.Errorf(theme.EN.CLI.ErrGoModNotFoundFmt, root)
-				}
+			runRoot, runTarget, err := dev.ResolveRunContext(root, entry)
+			if err != nil {
 				return err
 			}
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 
-			return dev.RunUI(ctx, stop, root, entry, getVersion())
+			return dev.RunUI(ctx, stop, runRoot, runTarget, getVersion())
 		},
 	}
 
 	cmd.Flags().StringVar(&entry, "entry", ".", theme.EN.CLI.FlagEntry)
 	return cmd
+}
+
+// newBuildCommand creates the `bungo build` command for portable production binaries.
+// Inputs:
+// - none
+// Outputs:
+// - *cobra.Command: configured build command with entry/output flags and run behavior.
+func newBuildCommand() *cobra.Command {
+	var entry string
+	var outputPath string
+	var webDir string
+
+	cmd := &cobra.Command{
+		Use:   "build",
+		Short: theme.EN.CLI.BuildShort,
+		Long:  theme.EN.CLI.BuildLong,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			root, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			if err := ensureGoModExists(root); err != nil {
+				return err
+			}
+
+			binaryPath, err := internalbuild.Run(cmd.OutOrStdout(), root, entry, outputPath, webDir)
+			if err != nil {
+				return err
+			}
+			_ = binaryPath
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&entry, "entry", ".", theme.EN.CLI.FlagEntry)
+	cmd.Flags().StringVar(&outputPath, "output", "", theme.EN.CLI.FlagOutput)
+	cmd.Flags().StringVar(&webDir, "web-dir", "", theme.EN.CLI.FlagWebDir)
+	return cmd
+}
+
+// ensureGoModExists validates that the current working directory contains a go.mod file.
+// Inputs:
+// - root: absolute directory expected to contain go.mod for BunGo CLI commands.
+// Outputs:
+// - error: non-nil when go.mod is missing or stat fails for unexpected reasons.
+func ensureGoModExists(root string) error {
+	goModPath := filepath.Join(root, "go.mod")
+	if _, err := os.Stat(goModPath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf(theme.EN.CLI.ErrGoModNotFoundFmt, root)
+		}
+		return err
+	}
+	return nil
 }
 
 func getVersion() string {

@@ -137,7 +137,7 @@ required and no static files are served.
 
 ### Engines
 
-BunGo ships three engine adapters.
+BunGo ships four engine adapters.
 
   HTTP engine (standard net/http)
 
@@ -147,8 +147,20 @@ BunGo ships three engine adapters.
       srv := bungo.NewServer(engineInstance, "./web")
       srv.Serve(3303)   // listens on :3303
 
-    Static file serving: If webDir/static/ exists, /static/... is served via
-    http.FileServer. Static requests do NOT pass through security layers.
+    Static file serving: If webDir/static/ exists, /static/... is served from
+    BunGo AssetStorage (embedded memory first, disk fallback). Static requests do
+    NOT pass through security layers.
+
+  HTTPS engine (standard net/http TLS)
+
+    Import: github.com/piotr-nierobisz/BunGo/engine
+
+      httpsEngine := engine.NewHTTPSEngine("./certs/server.crt", "./certs/server.key")
+      srv := bungo.NewServer(httpsEngine, "./web")
+      srv.Serve(443)   // listens with TLS on :443
+
+    This engine reuses BunGo's HTTP route handling and starts with
+    http.ListenAndServeTLS(address, certFile, keyFile, handler).
 
   AWS Lambda engine
 

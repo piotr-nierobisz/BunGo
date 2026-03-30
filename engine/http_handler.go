@@ -1,8 +1,8 @@
 package engine
 
 import (
+	"mime"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -18,7 +18,7 @@ import (
 // - error: non-nil when view compilation fails before route registration.
 func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 	// Compile JSX views
-	compiledMap, optimizedMap, err := builder.CompilePages(srv.Pages, srv.WebDir)
+	compiledMap, optimizedMap, err := builder.CompilePagesFromStorage(srv.Pages, srv.AssetStorage())
 	if err != nil {
 		return nil, err
 	}
@@ -27,12 +27,31 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 
-	// Serve static assets if "static" directory exists
-	if srv.WebDir != "" {
-		staticDir := filepath.Join(srv.WebDir, "static")
-		if info, err := os.Stat(staticDir); err == nil && info.IsDir() {
-			mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
-		}
+	// Serve static assets from memory-first storage when static directory exists.
+	if srv.AssetStorage().Exists("static") {
+		mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			requestPath := strings.TrimPrefix(r.URL.Path, "/static/")
+			content, err := srv.AssetStorage().ReadStaticFile(requestPath)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+
+			ext := filepath.Ext(strings.ToLower(requestPath))
+			contentType := mime.TypeByExtension(ext)
+			if contentType == "" {
+				contentType = http.DetectContentType(content)
+			}
+
+			w.Header().Set("Content-Type", contentType)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(content)
+		})
 	}
 
 	if srv.AssetOptimizationEnabled() {
