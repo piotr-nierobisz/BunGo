@@ -2,6 +2,7 @@ package bungo
 
 import (
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
 )
@@ -144,7 +145,32 @@ func (s *Server) AssetStorage() *AssetStorage {
 // Outputs:
 // - none
 func (s *Server) Api(route ApiRoute) {
+	method := validateHTTPMethod(route.Method)
+	if route.Handler == nil {
+		panic(fmt.Sprintf("BunGo Routing Error: ApiRoute.Handler cannot be nil (Method: '%s', Path: '%s').", method, route.Path))
+	}
+	route.Method = method
 	s.APIs[route.Version+":"+route.Method+":"+route.Path] = route
+}
+
+// validateHTTPMethod trims whitespace, uppercases the method, and panics when it is empty or not a supported standard HTTP verb.
+// Inputs:
+// - method: raw ApiRoute.Method value (for example "GET", "get", or " Post ").
+// Outputs:
+// - string: canonical method string matching net/http.Request.Method (uppercase).
+func validateHTTPMethod(method string) string {
+	m := strings.TrimSpace(method)
+	if m == "" {
+		panic("BunGo Routing Error: ApiRoute.Method is required and cannot be empty.")
+	}
+	u := strings.ToUpper(m)
+	switch u {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
+		http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace:
+		return u
+	default:
+		panic(fmt.Sprintf("BunGo Routing Error: ApiRoute.Method %q is not a valid HTTP method (use a standard verb such as GET, POST, PUT, PATCH, DELETE).", method))
+	}
 }
 
 // Security registers a named security layer in the server security registry.

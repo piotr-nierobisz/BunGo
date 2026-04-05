@@ -85,7 +85,10 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 			routePath = "/" + routePath
 		}
 		fullPath := "/api/" + routeRef.Version + routePath
-		mux.HandleFunc(fullPath, e.createAPIHandler(srv, &routeRef))
+
+		pattern := strings.ToUpper(routeRef.Method) + " " + fullPath
+
+		mux.HandleFunc(pattern, e.createAPIHandler(srv, &routeRef))
 	}
 
 	return mux, nil

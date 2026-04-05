@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	bungo "github.com/piotr-nierobisz/BunGo"
@@ -33,6 +34,10 @@ func (e *HTTPEngine) createAPIHandler(srv *bungo.Server, route *bungo.ApiRoute) 
 					http.Error(w, "Unauthorized", http.StatusUnauthorized)
 					return
 				}
+			} else {
+				log.Printf("BunGo Security Error: Security Layer '%s' was requested but is not registered.", layerName)
+				http.Error(w, "Internal Server Error: Application Misconfigured", http.StatusInternalServerError)
+				return
 			}
 		}
 
@@ -75,6 +80,10 @@ func (e *HTTPEngine) createPageHandler(srv *bungo.Server, route *bungo.PageRoute
 					http.Error(w, "Unauthorized", http.StatusUnauthorized)
 					return
 				}
+			} else {
+				log.Printf("BunGo Security Error: Security Layer '%s' was requested but is not registered.", layerName)
+				http.Error(w, "Internal Server Error: Application Misconfigured", http.StatusInternalServerError)
+				return
 			}
 		}
 

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -163,6 +164,9 @@ func (e *LambdaEngine) handleAPI(breq *bungo.Request, route *bungo.ApiRoute, srv
 			if !layer.Handler(breq) {
 				return e.response(http.StatusUnauthorized, "application/json", `{"error":"Unauthorized"}`), nil
 			}
+		} else {
+			log.Printf("BunGo Security Error: Security Layer '%s' was requested but is not registered.", layerName)
+			return e.response(http.StatusInternalServerError, "application/json", `{"error":"Internal Server Error: Application Misconfigured"}`), nil
 		}
 	}
 	resp, err := route.Handler(breq)
@@ -187,6 +191,9 @@ func (e *LambdaEngine) handlePage(breq *bungo.Request, route *bungo.PageRoute, s
 			if !layer.Handler(breq) {
 				return e.response(http.StatusUnauthorized, "text/html; charset=utf-8", "<html><body>Unauthorized</body></html>"), nil
 			}
+		} else {
+			log.Printf("BunGo Security Error: Security Layer '%s' was requested but is not registered.", layerName)
+			return e.response(http.StatusInternalServerError, "text/html; charset=utf-8", "<html><body>Internal Server Error: Application Misconfigured</body></html>"), nil
 		}
 	}
 	var pageData map[string]any

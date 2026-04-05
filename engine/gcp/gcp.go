@@ -39,7 +39,7 @@ func (e *GCPEngine) Start(address string, srv *bungo.Server) error {
 	httpEngine := engine.NewHTTPEngine()
 	handler, err := httpEngine.CreateHandler(srv)
 	if err != nil {
-		panic(fmt.Sprintf("GCPEngine Initialization Error: %v", err))
+		panic(fmt.Sprintf("BunGo GCPEngine Error: Initialization failed: %v", err))
 	}
 
 	// 2. Register the BunGo multiplexer as the single GCP Function HTTP entry point.
@@ -50,6 +50,6 @@ func (e *GCPEngine) Start(address string, srv *bungo.Server) error {
 	// Parse out port from address if present (e.g., ":3303" -> "3303")
 	port := strings.TrimPrefix(address, ":")
 
-	log.Printf("Starting GCP Functions Framework on port %s", port)
+	log.Printf("BunGo GCPEngine Info: Starting GCP Functions Framework on port %s", port)
 	return funcframework.Start(port)
 }

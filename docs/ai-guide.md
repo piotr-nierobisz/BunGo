@@ -127,13 +127,14 @@ required and no static files are served.
 --- ApiRoute ---
 
   type ApiRoute struct {
-      Path          string               // e.g. "/users"
+      Path          string               // Static path segment, e.g. "/users" — NOT :id / {id} patterns
       Version       string               // e.g. "v1"  → full path: /api/v1/users
-      Method        string               // HTTP method ("GET", "POST", etc.)
+      Method        string               // Standard verb only; normalized to uppercase at registration
       SecurityLayer []string
       Handler       func(req *Request) (APIResponse, error)
   }
 
+  BunGo does NOT support path parameters (no /users/:id). Use query params (req.Params)
 
 ### Engines
 
@@ -367,6 +368,9 @@ API routes are registered with srv.Api(). The full HTTP path is /api/{Version}{P
 
 This registers GET /api/v1/users. The response Body is marshaled to JSON.
 
+Path parameters such as `/api/v1/users/:id` are NOT supported—use a fixed Path like
+`/user` or `/users` and pass ids via query string (e.g. `?id=`) or request body.
+
 
 ### API-only servers
 
@@ -404,6 +408,9 @@ Api() routes can be registered (Page routes require templates on disk).
 
   - API paths are automatically prefixed with /api/{Version}. Do not hardcode
     /api/ in the Path field.
+
+  - Do NOT use Express-style or mux-style path parameters (:id, {id}, wildcards).
+    BunGo matches exact paths only. Use query parameters (req.Params) or JSON body.
 
   - For TypeScript views, provide bungo-env.d.ts with declarations for
     useBungoData and _bungoRender.

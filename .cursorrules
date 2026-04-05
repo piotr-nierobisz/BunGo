@@ -10,6 +10,7 @@ BunGo is a lightweight, high-performance idiomatic Go web framework and asset bu
 
 **Whenever changes are made to how the library works or its features, AI agents MUST also automatically update the relevant documentation files inside the `docs/` directory. This is critical for preserving developer documentation structures.**
 
+**Testing and regressions:** Keep existing `*_test.go` files aligned with the rest of the codebase (patterns, package layout, naming, and assertions that document intended behaviour). **Whenever you introduce or change framework behaviour, run the full test suite before finishing:** from the repository root run `go test ./...`, then run `go test ./...` inside `engine/aws` and `engine/gcp` (separate Go modules, not covered by the root `./...`). Fix failing tests or update tests in the **same** change set as the code—do not leave main broken or tests stale.
 ## 3. Core Architectural Boundaries (CRITICAL)
 * **Embedded Bundling & React:** BunGo embeds `esbuild` directly via its Go API (`github.com/evanw/esbuild/pkg/api`). Furthermore, BunGo **embeds React and React-DOM directly into the Go binary** using `//go:embed` inside `internal/builder/vendor/`. An esbuild plugin (in `internal/builder/react_plugin.go`) intercepts `import "react"`, `import "react-dom"` / `react-dom/client`, and `import "bungo/render"`. The virtual module `bungo/render` exports `_bungoRender(Component, elementId?)` and `useBungoData()` so views can mount their root component and read page handler data without importing helpers from `react-dom/client` or touching `window.__BUNGO_DATA__` directly; when `elementId` is omitted it defaults to `"root"`. BunGo supports local view entry files in `.jsx`, `.tsx`, `.js`, and `.ts`. BunGo also supports Deno-style remote URL imports in JSX/TSX (for example `https://esm.sh/...`) through `internal/builder/remote_import_plugin.go`, which resolves and fetches remote ESM modules (including relative imports between remote modules) at build time. Remote modules that reference React/ReactDOM URL variants are normalized back to BunGo's embedded React runtime to prevent duplicate React instances and hook/context crashes. The React JSX automatic runtime shim preserves `key` semantics (third `jsx` argument), so keyed lists reconcile correctly and keys are not rendered as child text. The compiler uses esbuild's `Inject: ["bungo/render"]` so `_bungoRender` / `useBungoData` are auto-injected and view files do not need to import them.
 * **Theme / locale:** User-facing CLI strings, dev TUI copy, and scaffold error messages default to English in `internal/theme/en.go` (`theme.EN`). Shared constants (`EmbeddedReactVersion`, `ScaffoldGoVersion`, `CLIVersionUnknown`, plus build-time identifiers `BunGoModuleImportPath` and `BunGoNewServerSelector`) live in `internal/theme/versions.go`. The root package re-exports `EmbeddedReactVersion` for API stability.
@@ -86,3 +87,13 @@ Discovery runs only when `--web-dir` is not supplied.
 
 ### Runtime wiring
 Embedded assets are registered via `RegisterEmbeddedAssetsFS` in `embedded_assets.go`. `AssetStorage` in `asset_storage.go` reads **embedded FS first**, then disk under `WebDir`, so production binaries stay portable without changing app code.
+
+## 7. Logging & Error Messaging Standard
+* **Uniform Formatting:** Any framework-level panics, formatted errors, or internal informational logs MUST follow the uniform namespaced format `BunGo <Category> <Level>: <Message>`.
+* **Categories:** Use clear module/feature descriptors corresponding to the failure area: `Startup`, `Routing`, `Security`, `HTTPS`, `GCPEngine`, `Builder`, etc.
+* **Levels:** Use `Error`, `Info`, or `Warning`.
+* **Examples:**
+  - `panic("BunGo Routing Error: ApiRoute.Method is required")`
+  - `log.Printf("BunGo Security Error: Security Layer '%s' was requested but is not registered.", layerName)`
+  - `log.Printf("BunGo GCPEngine Info: Starting GCP Functions Framework on port %s", port)`
+* **Rationale:** By standardizing this prefix throughout the framework, developers using BunGo can immediately identify and filter when an issue originates from missing framework configurations or built-in safeguards rather than their own application code.

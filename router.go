@@ -27,7 +27,10 @@ type PageRoute struct {
 	Handler       func(req *Request) (map[string]any, error)
 }
 
-// ApiRoute represents a configuration for an API route
+// ApiRoute represents a configuration for an API route.
+//
+// Method must be a standard HTTP verb (GET, HEAD, POST, PUT, PATCH, DELETE, CONNECT, OPTIONS, TRACE).
+// Registration normalizes it to uppercase; invalid or empty values panic at Api registration time.
 type ApiRoute struct {
 	Path          string
 	Version       string

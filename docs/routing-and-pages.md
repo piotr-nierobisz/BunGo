@@ -78,6 +78,26 @@ srv.Api(bungo.ApiRoute{
 
 Failed security layers on page or API routes return **HTTP 401 Unauthorized**; see [Security Layers](./security-layers.md).
 
+### Path parameters and query strings
+
+BunGo does **not** support path-parameter patterns like `/api/v1/user/:id`, `/api/v1/users/{userId}`, or wildcard segments on `ApiRoute.Path` or `PageRoute.Path`. Routes are **exact-path** matches (plus HTTP method for APIs).
+
+For identifiers and filters, use **query parameters**—they are available on `bungo.Request.Params` (URL and query keys). Example:
+
+```go
+// Client: GET /api/v1/user?id=42
+srv.Api(bungo.ApiRoute{
+    Path:    "/user",
+    Version: "v1",
+    Method:  "GET",
+    Handler: func(req *bungo.Request) (bungo.APIResponse, error) {
+        id := req.Params["id"]
+        // ...
+        return bungo.APIResponse{StatusCode: 200, Body: map[string]any{"id": id}}, nil
+    },
+})
+```
+
 ## Static files (`web/static`)
 
 When you use **`engine.NewHTTPEngine()`** with a non-empty `webDir`, BunGo looks for a directory named **`static`** inside that folder. If it exists, the engine registers a standard file server:
