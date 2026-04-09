@@ -68,7 +68,7 @@ func (e *LambdaEngine) initHandler(srv *bungo.Server) (func(context.Context, eve
 		e.optimizedAssets = optimizedMap
 	}
 	return func(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
-		return e.dispatch(req, srv)
+		return e.dispatch(ctx, req, srv)
 	}, nil
 }
 
@@ -79,8 +79,8 @@ func (e *LambdaEngine) initHandler(srv *bungo.Server) (func(context.Context, eve
 // Outputs:
 // - events.APIGatewayV2HTTPResponse: serialized HTTP response payload for API Gateway.
 // - error: non-nil when unexpected runtime dispatch errors occur.
-func (e *LambdaEngine) dispatch(req events.APIGatewayV2HTTPRequest, srv *bungo.Server) (events.APIGatewayV2HTTPResponse, error) {
-	breq := e.translateRequest(req)
+func (e *LambdaEngine) dispatch(ctx context.Context, req events.APIGatewayV2HTTPRequest, srv *bungo.Server) (events.APIGatewayV2HTTPResponse, error) {
+	breq := e.translateRequest(ctx, req)
 	path := normalizePath(req.RawPath, req.RequestContext.HTTP.Path)
 	method := req.RequestContext.HTTP.Method
 
@@ -218,8 +218,9 @@ func (e *LambdaEngine) handlePage(breq *bungo.Request, route *bungo.PageRoute, s
 // - req: incoming API Gateway v2 request event.
 // Outputs:
 // - *bungo.Request: translated request including headers, query params, body, and internal map.
-func (e *LambdaEngine) translateRequest(req events.APIGatewayV2HTTPRequest) *bungo.Request {
+func (e *LambdaEngine) translateRequest(ctx context.Context, req events.APIGatewayV2HTTPRequest) *bungo.Request {
 	breq := &bungo.Request{
+		Context:  ctx,
 		Headers:  make(map[string]string),
 		Params:   make(map[string]string),
 		Internal: make(map[string]any),

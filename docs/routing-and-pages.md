@@ -98,6 +98,16 @@ srv.Api(bungo.ApiRoute{
 })
 ```
 
+## The `bungo.Request` Object
+
+Every Page or API route handler (and Security Layer) receives a `*bungo.Request` object. This struct normalizes incoming data across different engines (like standard HTTP vs AWS Lambda) into a unified, predictable payload:
+
+- **`Context`**: (`context.Context`) The request context from the underlying environment. You can use it to monitor `req.Context.Done()` to cancel expensive downstream operations or database queries if a user navigates away or drops the connection.
+- **`Headers`**: (`map[string]string`) The HTTP headers provided by the client. For simplicity, BunGo flattens header values by taking the first value associated with each key.
+- **`Params`**: (`map[string]string`) URL query string parameters. Because BunGo does not map dynamic path segments (e.g. `/:id`), `Params` combined with query strings are your primary way to read user variables.
+- **`Body`**: (`[]byte`) The raw byte slice containing the request payload. You can unmarshal this to read JSON or parse it for forms depending on the request type.
+- **`Internal`**: (`map[string]any`) A specialized, mutable key-value map designed for internal framework use. It safely passes data derived within your Security Layers directly to your route handlers. For example, a `require_auth` layer might inject a `req.Internal["UserID"]` value.
+
 ## Static files (`web/static`)
 
 When you use **`engine.NewHTTPEngine()`** with a non-empty `webDir`, BunGo looks for a directory named **`static`** inside that folder. If it exists, the engine registers a standard file server:

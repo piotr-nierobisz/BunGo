@@ -1,7 +1,10 @@
 package bungo
 
+import "context"
+
 // Request represents a framework-agnostic HTTP request
 type Request struct {
+	Context  context.Context
 	Headers  map[string]string
 	Params   map[string]string // URL and Query parameters
 	Body     []byte

@@ -15,6 +15,7 @@ import (
 // - error: non-nil when request body reading fails.
 func (e *HTTPEngine) translateRequest(r *http.Request) (*bungo.Request, error) {
 	breq := &bungo.Request{
+		Context:  r.Context(),
 		Headers:  make(map[string]string),
 		Params:   make(map[string]string),
 		Internal: make(map[string]any),

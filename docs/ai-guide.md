@@ -88,6 +88,7 @@ required and no static files are served.
 --- Request ---
 
   type Request struct {
+      Context  context.Context     // Request scoped context lifecycle
       Headers  map[string]string   // HTTP headers (first value per key)
       Params   map[string]string   // URL query parameters
       Body     []byte              // Raw request body

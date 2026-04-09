@@ -30,7 +30,7 @@ func TestLambdaEngine_translateRequest(t *testing.T) {
 		QueryStringParameters: map[string]string{"q": "1"},
 		Body:                  `{"a":1}`,
 	}
-	b := e.translateRequest(req)
+	b := e.translateRequest(context.Background(), req)
 	if b.Headers["x-a"] != "b" || b.Params["q"] != "1" || string(b.Body) != `{"a":1}` {
 		t.Fatalf("%#v", b)
 	}
@@ -57,7 +57,7 @@ func TestLambdaEngine_dispatch_API(t *testing.T) {
 			},
 		},
 	}
-	resp, err := e.dispatch(ev, srv)
+	resp, err := e.dispatch(context.Background(), ev, srv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestLambdaEngine_dispatch_API(t *testing.T) {
 func TestLambdaEngine_dispatch_notFound(t *testing.T) {
 	e := NewLambdaEngine()
 	srv := bungo.NewServer(nil, "")
-	resp, err := e.dispatch(events.APIGatewayV2HTTPRequest{
+	resp, err := e.dispatch(context.Background(), events.APIGatewayV2HTTPRequest{
 		RawPath: "/nope",
 		RequestContext: events.APIGatewayV2HTTPRequestContext{
 			HTTP: events.APIGatewayV2HTTPRequestContextHTTPDescription{
