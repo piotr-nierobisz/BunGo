@@ -99,8 +99,29 @@ required and no static files are served.
 
   type APIResponse struct {
       StatusCode int
-      Body       any   // Marshaled to JSON
+      Body       any         // Marshaled to JSON
+      Cookies    []Cookie    // Optional Set-Cookie headers emitted with the response
   }
+
+--- Cookie ---
+
+  type Cookie struct {
+      Name     string
+      Value    string
+      Path     string
+      Domain   string
+      Expires  time.Time
+      MaxAge   int           // 0=unset, >0=seconds, <0=delete now
+      Secure   bool
+      HttpOnly bool
+      SameSite SameSiteMode  // "", "Lax", "Strict", "None"
+  }
+
+  bungo.Cookie is transport-neutral. Each Engine (HTTP, HTTPS, AWS Lambda, GCP)
+  registers its own cookie converter callback in its constructor:
+    - engine.NewHTTPEngine().SetCookieConverter(func(bungo.Cookie) *http.Cookie)
+    - engine_aws.NewLambdaEngine().SetCookieConverter(func(bungo.Cookie) string)
+  Passing nil restores the engine's default converter.
 
 --- SecurityLayer ---
 

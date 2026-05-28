@@ -78,6 +78,71 @@ srv.Api(bungo.ApiRoute{
 
 Failed security layers on page or API routes return **HTTP 401 Unauthorized**; see [Security Layers](./security-layers.md).
 
+### Setting cookies from API handlers
+
+API handlers can attach `Set-Cookie` headers to the response by appending `bungo.Cookie` values to `APIResponse.Cookies`. Each cookie is engine-agnostic: the active engine (HTTP, HTTPS, AWS Lambda, …) serializes it into the right transport format using a converter it registered at construction time.
+
+```go
+import "time"
+
+srv.Api(bungo.ApiRoute{
+    Path:    "/login",
+    Version: "v1",
+    Method:  "POST",
+    Handler: func(req *bungo.Request) (bungo.APIResponse, error) {
+        return bungo.APIResponse{
+            StatusCode: 200,
+            Body:       map[string]any{"ok": true},
+            Cookies: []bungo.Cookie{
+                {
+                    Name:     "session",
+                    Value:    "signed-jwt-here",
+                    Path:     "/",
+                    Expires:  time.Now().Add(24 * time.Hour),
+                    HttpOnly: true,
+                    Secure:   true,
+                    SameSite: bungo.SameSiteLax,
+                },
+                // Delete a previously set cookie by sending MaxAge < 0
+                {Name: "stale", Path: "/", MaxAge: -1},
+            },
+        }, nil
+    },
+})
+```
+
+`MaxAge` follows the standard library convention:
+
+| Value | Effect |
+|-------|--------|
+| `0`   | No `Max-Age` attribute is emitted |
+| `> 0` | Cookie lives for that many seconds |
+| `< 0` | Tells the browser to delete the cookie now |
+
+`SameSite` accepts `bungo.SameSiteDefault` (empty), `bungo.SameSiteLax`, `bungo.SameSiteStrict`, or `bungo.SameSiteNone`.
+
+#### Customizing cookie serialization per engine
+
+Each engine constructor injects its own converter callback so the core `bungo.Cookie` type stays transport-neutral. Override it when you need bespoke attribute handling (for example, forcing `Secure=true` behind a TLS-terminating proxy, or rewriting `Domain`):
+
+```go
+// net/http engine — converter returns *http.Cookie
+httpEngine := engine.NewHTTPEngine()
+httpEngine.SetCookieConverter(func(c bungo.Cookie) *http.Cookie {
+    hc := engine.DefaultHTTPCookieConverter(c)
+    hc.Secure = true // running behind a TLS proxy that strips the flag
+    return hc
+})
+
+// AWS Lambda engine — converter returns a raw Set-Cookie header string
+awsEngine := engine_aws.NewLambdaEngine()
+awsEngine.SetCookieConverter(func(c bungo.Cookie) string {
+    return engine_aws.DefaultLambdaCookieConverter(c)
+})
+```
+
+Passing `nil` to `SetCookieConverter` restores the engine's default.
+
 ### Path parameters and query strings
 
 BunGo does **not** support path-parameter patterns like `/api/v1/user/:id`, `/api/v1/users/{userId}`, or wildcard segments on `ApiRoute.Path` or `PageRoute.Path`. Routes are **exact-path** matches (plus HTTP method for APIs).

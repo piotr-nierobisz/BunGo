@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	bungo "github.com/piotr-nierobisz/BunGo"
 )
@@ -208,6 +209,113 @@ _bungoRender(V);`)
 	}
 	if ct := rec.Header().Get("Content-Type"); ct == "" {
 		t.Fatal("missing content type")
+	}
+}
+
+func TestCreateHandler_apiCookies(t *testing.T) {
+	dir := mustWebDir(t)
+	eng := NewHTTPEngine()
+	srv := bungo.NewServer(eng, dir)
+
+	expiry := time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC)
+	srv.Api(bungo.ApiRoute{
+		Path:    "set",
+		Version: "v1",
+		Method:  http.MethodGet,
+		Handler: func(req *bungo.Request) (bungo.APIResponse, error) {
+			return bungo.APIResponse{
+				StatusCode: 200,
+				Body:       map[string]any{"ok": true},
+				Cookies: []bungo.Cookie{
+					{
+						Name:     "session",
+						Value:    "abc123",
+						Path:     "/",
+						Expires:  expiry,
+						HttpOnly: true,
+						Secure:   true,
+						SameSite: bungo.SameSiteLax,
+					},
+					{Name: "tracker", Value: "", MaxAge: -1, Path: "/"},
+					{Name: "", Value: "ignored"},
+				},
+			}, nil
+		},
+	})
+
+	h, err := eng.CreateHandler(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/set", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 2 {
+		t.Fatalf("expected 2 cookies (anonymous skipped), got %d: %#v", len(cookies), cookies)
+	}
+
+	var session, tracker *http.Cookie
+	for _, c := range cookies {
+		switch c.Name {
+		case "session":
+			session = c
+		case "tracker":
+			tracker = c
+		}
+	}
+	if session == nil {
+		t.Fatal("session cookie missing")
+	}
+	if session.Value != "abc123" || !session.HttpOnly || !session.Secure || session.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("session attributes wrong: %#v", session)
+	}
+	if !session.Expires.Equal(expiry) {
+		t.Fatalf("session expiry: got %s want %s", session.Expires, expiry)
+	}
+
+	if tracker == nil {
+		t.Fatal("tracker delete cookie missing")
+	}
+	if tracker.MaxAge >= 0 {
+		t.Fatalf("tracker MaxAge=%d, expected negative for delete", tracker.MaxAge)
+	}
+}
+
+func TestCreateHandler_apiCookiesCustomConverter(t *testing.T) {
+	dir := mustWebDir(t)
+	eng := NewHTTPEngine()
+	eng.SetCookieConverter(func(c bungo.Cookie) *http.Cookie {
+		return &http.Cookie{Name: "x-" + c.Name, Value: c.Value, Path: "/forced"}
+	})
+	srv := bungo.NewServer(eng, dir)
+	srv.Api(bungo.ApiRoute{
+		Path:    "set",
+		Version: "v1",
+		Method:  http.MethodGet,
+		Handler: func(req *bungo.Request) (bungo.APIResponse, error) {
+			return bungo.APIResponse{
+				StatusCode: 200,
+				Body:       map[string]any{"ok": true},
+				Cookies:    []bungo.Cookie{{Name: "session", Value: "v"}},
+			}, nil
+		},
+	})
+
+	h, err := eng.CreateHandler(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/set", nil))
+
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != "x-session" || cookies[0].Path != "/forced" {
+		t.Fatalf("custom converter not applied: %#v", cookies)
 	}
 }
 

@@ -48,6 +48,13 @@ func (e *HTTPEngine) createAPIHandler(srv *bungo.Server, route *bungo.ApiRoute) 
 			return
 		}
 
+		for _, c := range resp.Cookies {
+			if c.Name == "" {
+				continue
+			}
+			http.SetCookie(w, e.cookieConverter(c))
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
 		json.NewEncoder(w).Encode(resp.Body)

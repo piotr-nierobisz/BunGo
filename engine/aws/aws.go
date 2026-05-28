@@ -19,13 +19,21 @@ import (
 	"github.com/piotr-nierobisz/BunGo/internal/builder"
 )
 
+// LambdaCookieConverter serializes a bungo.Cookie into the Set-Cookie header
+// string that API Gateway expects on APIGatewayV2HTTPResponse.Cookies.
+// Override via SetCookieConverter when custom attribute handling is required.
+type LambdaCookieConverter func(bungo.Cookie) string
+
 // LambdaEngine implements bungo.Engine for AWS Lambda (API Gateway HTTP API v2 / Function URL).
 type LambdaEngine struct {
 	compiledViews   map[string]string
 	optimizedAssets map[string]string
+	cookieConverter LambdaCookieConverter
 }
 
 // NewLambdaEngine creates a Lambda engine with initialized compiled-view caches.
+// The constructor injects the engine's default cookie converter; callers can
+// replace it with SetCookieConverter to customize Set-Cookie emission.
 // Inputs:
 // - none
 // Outputs:
@@ -34,7 +42,52 @@ func NewLambdaEngine() *LambdaEngine {
 	return &LambdaEngine{
 		compiledViews:   make(map[string]string),
 		optimizedAssets: make(map[string]string),
+		cookieConverter: DefaultLambdaCookieConverter,
 	}
+}
+
+// SetCookieConverter overrides the engine's bungo.Cookie → Set-Cookie string mapper.
+// A nil converter restores the default implementation.
+// Inputs:
+// - converter: replacement converter callback, or nil to restore defaults.
+// Outputs:
+// - none
+func (e *LambdaEngine) SetCookieConverter(converter LambdaCookieConverter) {
+	if converter == nil {
+		e.cookieConverter = DefaultLambdaCookieConverter
+		return
+	}
+	e.cookieConverter = converter
+}
+
+// DefaultLambdaCookieConverter renders a bungo.Cookie as a Set-Cookie header
+// value via the standard library's net/http.Cookie.String formatting rules.
+// Inputs:
+// - c: source cookie populated by an API handler.
+// Outputs:
+// - string: Set-Cookie header value, suitable for APIGatewayV2HTTPResponse.Cookies.
+func DefaultLambdaCookieConverter(c bungo.Cookie) string {
+	hc := &http.Cookie{
+		Name:     c.Name,
+		Value:    c.Value,
+		Path:     c.Path,
+		Domain:   c.Domain,
+		Expires:  c.Expires,
+		MaxAge:   c.MaxAge,
+		Secure:   c.Secure,
+		HttpOnly: c.HttpOnly,
+	}
+	switch c.SameSite {
+	case bungo.SameSiteLax:
+		hc.SameSite = http.SameSiteLaxMode
+	case bungo.SameSiteStrict:
+		hc.SameSite = http.SameSiteStrictMode
+	case bungo.SameSiteNone:
+		hc.SameSite = http.SameSiteNoneMode
+	default:
+		hc.SameSite = http.SameSiteDefaultMode
+	}
+	return hc.String()
 }
 
 // Start initializes dispatch state and starts the AWS Lambda runtime loop.
@@ -174,7 +227,14 @@ func (e *LambdaEngine) handleAPI(breq *bungo.Request, route *bungo.ApiRoute, srv
 		return e.response(http.StatusInternalServerError, "application/json", fmt.Sprintf(`{"error":%q}`, err.Error())), nil
 	}
 	body, _ := json.Marshal(resp.Body)
-	return e.response(resp.StatusCode, "application/json", string(body)), nil
+	out := e.response(resp.StatusCode, "application/json", string(body))
+	for _, c := range resp.Cookies {
+		if c.Name == "" {
+			continue
+		}
+		out.Cookies = append(out.Cookies, e.cookieConverter(c))
+	}
+	return out, nil
 }
 
 // handlePage executes security checks and template rendering for one page route.

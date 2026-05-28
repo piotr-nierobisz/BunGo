@@ -3,6 +3,7 @@ package engine_aws
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -83,6 +84,84 @@ func TestLambdaEngine_dispatch_notFound(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatal(resp.StatusCode)
+	}
+}
+
+func TestLambdaEngine_dispatch_APICookies(t *testing.T) {
+	e := NewLambdaEngine()
+	srv := bungo.NewServer(nil, "")
+	srv.APIs["v1:GET:set"] = bungo.ApiRoute{
+		Path:    "set",
+		Version: "v1",
+		Method:  http.MethodGet,
+		Handler: func(*bungo.Request) (bungo.APIResponse, error) {
+			return bungo.APIResponse{
+				StatusCode: 200,
+				Body:       map[string]string{"ok": "1"},
+				Cookies: []bungo.Cookie{
+					{Name: "session", Value: "abc", Path: "/", HttpOnly: true, Secure: true, SameSite: bungo.SameSiteStrict},
+					{Name: "", Value: "skip"},
+				},
+			}, nil
+		},
+	}
+
+	ev := events.APIGatewayV2HTTPRequest{
+		RawPath: "/api/v1/set",
+		RequestContext: events.APIGatewayV2HTTPRequestContext{
+			HTTP: events.APIGatewayV2HTTPRequestContextHTTPDescription{
+				Method: http.MethodGet,
+				Path:   "/api/v1/set",
+			},
+		},
+	}
+	resp, err := e.dispatch(context.Background(), ev, srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d: %v", len(resp.Cookies), resp.Cookies)
+	}
+	want := []string{"session=abc", "Path=/", "HttpOnly", "Secure", "SameSite=Strict"}
+	for _, fragment := range want {
+		if !strings.Contains(resp.Cookies[0], fragment) {
+			t.Fatalf("cookie %q missing %q", resp.Cookies[0], fragment)
+		}
+	}
+}
+
+func TestLambdaEngine_SetCookieConverter(t *testing.T) {
+	e := NewLambdaEngine()
+	e.SetCookieConverter(func(c bungo.Cookie) string { return "OVERRIDE=" + c.Name })
+	srv := bungo.NewServer(nil, "")
+	srv.APIs["v1:GET:c"] = bungo.ApiRoute{
+		Path:    "c",
+		Version: "v1",
+		Method:  http.MethodGet,
+		Handler: func(*bungo.Request) (bungo.APIResponse, error) {
+			return bungo.APIResponse{
+				StatusCode: 200,
+				Body:       map[string]string{"ok": "1"},
+				Cookies:    []bungo.Cookie{{Name: "session"}},
+			}, nil
+		},
+	}
+	ev := events.APIGatewayV2HTTPRequest{
+		RawPath: "/api/v1/c",
+		RequestContext: events.APIGatewayV2HTTPRequestContext{
+			HTTP: events.APIGatewayV2HTTPRequestContextHTTPDescription{Method: http.MethodGet, Path: "/api/v1/c"},
+		},
+	}
+	resp, err := e.dispatch(context.Background(), ev, srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Cookies) != 1 || resp.Cookies[0] != "OVERRIDE=session" {
+		t.Fatalf("custom converter not applied: %#v", resp.Cookies)
+	}
+	e.SetCookieConverter(nil)
+	if e.cookieConverter == nil {
+		t.Fatal("nil converter should restore default")
 	}
 }
 
