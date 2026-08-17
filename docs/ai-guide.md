@@ -36,7 +36,9 @@ required and no static files are served.
   type Server struct {
       Pages          map[string]PageRoute
       APIs           map[string]ApiRoute
+      WebSockets     map[string]WebSocketRoute
       SecurityLayers map[string]SecurityLayer
+      StaticAliases  map[string]string   // root URL path -> file path relative to webDir/static
       Engine         Engine
       WebDir         string
       DefaultLayout  string
@@ -70,6 +72,20 @@ required and no static files are served.
   func (s *Server) Api(route ApiRoute)
 
     Registers an API route. The internal key is "Version:Method:Path".
+
+  func (s *Server) StaticAlias(urlPath string, staticPath string)
+
+    Publishes one file from webDir/static at an additional root URL (e.g.
+    "/robots.txt" -> "robots.txt"). Panics unless urlPath starts with "/", carries
+    the same file extension as staticPath (case-insensitive), avoids the reserved
+    /static/, /api/ and /_bungo/ prefixes, and the target file already exists.
+
+  func (s *Server) WebSocket(route WebSocketRoute) *WebSocketHub
+
+    Registers a WebSocket route and returns its hub — the only handle to that hub,
+    so capture it (a closure or a field) wherever you broadcast or publish; there is
+    no lookup-by-path accessor. Panics unless Path starts with "/" and is not already
+    registered as a WebSocket route.
 
   func (s *Server) Security(layer SecurityLayer)
 
@@ -171,8 +187,12 @@ BunGo ships four engine adapters.
       srv.Serve(3303)   // listens on :3303
 
     Static file serving: If webDir/static/ exists, /static/... is served from
-    BunGo AssetStorage (embedded memory first, disk fallback). Static requests do
-    NOT pass through security layers.
+    BunGo AssetStorage (embedded memory first, disk fallback). Registered
+    StaticAlias URLs (e.g. /robots.txt) are served the same way. Static requests
+    do NOT pass through security layers.
+
+    WebSocket routes: served by this engine (and the HTTPS engine, which reuses
+    its handler). The serverless engines do not serve them.
 
   HTTPS engine (standard net/http TLS)
 
@@ -194,7 +214,8 @@ BunGo ships four engine adapters.
       srv := bungo.NewServer(awsEngine, "./web")
       srv.Serve(0)   // port is ignored; lambda.Start runs the Lambda runtime
 
-    Supports API Gateway HTTP API v2 and Lambda Function URL payloads.
+    Supports API Gateway HTTP API v2 and Lambda Function URL payloads. Serves
+    /static/... and StaticAlias URLs (base64-encoded); does not serve WebSockets.
 
   Google Cloud Functions engine
 
@@ -392,6 +413,28 @@ This registers GET /api/v1/users. The response Body is marshaled to JSON.
 
 Path parameters such as `/api/v1/users/:id` are NOT supported—use a fixed Path like
 `/user` or `/users` and pass ids via query string (e.g. `?id=`) or request body.
+
+
+### WebSocket routes
+
+  hub := srv.WebSocket(bungo.WebSocketRoute{
+      Path:          "/ws/feed",
+      SecurityLayer: []string{"require_auth"},   // runs BEFORE the upgrade; failure = plain 401
+      OnConnect:     func(conn *bungo.WebSocketConn) { /* connection registered in hub */ },
+      OnMessage:     func(conn *bungo.WebSocketConn, message []byte) { /* per frame */ },
+      OnDisconnect:  func(conn *bungo.WebSocketConn) { /* connection already unregistered */ },
+  })
+
+All callbacks are optional. *WebSocketConn: Request() (upgrade-time request with
+Internal populated by security layers), Send([]byte), SendText(string),
+SendJSON(any), Close(). Sends are buffered per connection and never block; a
+connection too slow to drain its buffer is closed. WebSocketHub: Broadcast/
+BroadcastText/BroadcastJSON (every connection), Publish/PublishText/
+PublishJSON(topic, ...) (topic subscribers only), Subscribe/Unsubscribe(conn,
+topic), ConnectionCount().
+Keepalive (ping/pong, deadlines) is automatic. Default origin policy is same-host;
+override with WebSocketRoute.CheckOrigin. Default inbound frame cap is 1 MiB;
+override with WebSocketRoute.MaxMessageSize. HTTP/HTTPS engines only.
 
 
 ### API-only servers

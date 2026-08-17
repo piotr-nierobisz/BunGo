@@ -161,24 +161,12 @@ func (e *LambdaEngine) dispatch(ctx context.Context, req events.APIGatewayV2HTTP
 
 	// Page routes: GET only, exact path
 	if method == http.MethodGet {
+		if alias, ok := srv.StaticAliases[path]; ok {
+			return e.staticFileResponse(srv, alias), nil
+		}
+
 		if strings.HasPrefix(path, "/static/") && srv.AssetStorage().Exists("static") {
-			relative := strings.TrimPrefix(path, "/static/")
-			content, err := srv.AssetStorage().ReadStaticFile(relative)
-			if err != nil {
-				return e.response(http.StatusNotFound, "text/plain", "Not Found"), nil
-			}
-
-			contentType := mime.TypeByExtension(filepath.Ext(strings.ToLower(relative)))
-			if contentType == "" {
-				contentType = http.DetectContentType(content)
-			}
-
-			return events.APIGatewayV2HTTPResponse{
-				StatusCode:      http.StatusOK,
-				IsBase64Encoded: true,
-				Headers:         map[string]string{"Content-Type": contentType},
-				Body:            base64.StdEncoding.EncodeToString(content),
-			}, nil
+			return e.staticFileResponse(srv, strings.TrimPrefix(path, "/static/")), nil
 		}
 
 		if srv.AssetOptimizationEnabled() && strings.HasPrefix(path, "/_bungo/") {
@@ -295,6 +283,31 @@ func (e *LambdaEngine) translateRequest(ctx context.Context, req events.APIGatew
 		breq.Body = []byte(req.Body)
 	}
 	return breq
+}
+
+// staticFileResponse builds a base64-encoded API Gateway v2 response for one static asset.
+// Inputs:
+// - srv: BunGo server registry providing the asset storage.
+// - staticPath: file path relative to webDir/static to resolve and serve.
+// Outputs:
+// - events.APIGatewayV2HTTPResponse: file response, or a plain 404 when the asset is missing.
+func (e *LambdaEngine) staticFileResponse(srv *bungo.Server, staticPath string) events.APIGatewayV2HTTPResponse {
+	content, err := srv.AssetStorage().ReadStaticFile(staticPath)
+	if err != nil {
+		return e.response(http.StatusNotFound, "text/plain", "Not Found")
+	}
+
+	contentType := mime.TypeByExtension(filepath.Ext(strings.ToLower(staticPath)))
+	if contentType == "" {
+		contentType = http.DetectContentType(content)
+	}
+
+	return events.APIGatewayV2HTTPResponse{
+		StatusCode:      http.StatusOK,
+		IsBase64Encoded: true,
+		Headers:         map[string]string{"Content-Type": contentType},
+		Body:            base64.StdEncoding.EncodeToString(content),
+	}
 }
 
 // response builds a minimal API Gateway v2 response with status, content type, and body.

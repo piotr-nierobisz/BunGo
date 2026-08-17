@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/piotr-nierobisz/BunGo/internal/wsbridge"
 )
 
 func TestNewServer_missingLayoutsPanics(t *testing.T) {
@@ -151,6 +153,82 @@ func TestPanics(t *testing.T) {
 			Method:  "FAKE",
 			Handler: func(*Request) (APIResponse, error) { return APIResponse{}, nil },
 		})
+	})
+}
+
+func TestServer_StaticAlias(t *testing.T) {
+	dir := newTestWebTree(t)
+	if err := os.MkdirAll(filepath.Join(dir, "static", "seo"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"static/robots.txt", "static/seo/sitemap.xml"} {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(f)), []byte("data"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := NewServer(&noopEngine{}, dir)
+
+	s.StaticAlias("/robots.txt", "robots.txt")
+	s.StaticAlias("/sitemap.xml", "/seo/sitemap.xml")
+
+	if s.StaticAliases["/robots.txt"] != "robots.txt" {
+		t.Fatalf("robots alias: %q", s.StaticAliases["/robots.txt"])
+	}
+	if s.StaticAliases["/sitemap.xml"] != "seo/sitemap.xml" {
+		t.Fatalf("sitemap alias not normalized: %q", s.StaticAliases["/sitemap.xml"])
+	}
+
+	t.Run("urlPath missing leading slash", func(t *testing.T) {
+		defer expectPanic(t)
+		s.StaticAlias("robots.txt", "robots.txt")
+	})
+
+	t.Run("urlPath missing extension", func(t *testing.T) {
+		defer expectPanic(t)
+		s.StaticAlias("/robots", "robots.txt")
+	})
+
+	t.Run("extension mismatch", func(t *testing.T) {
+		defer expectPanic(t)
+		s.StaticAlias("/robots.xml", "robots.txt")
+	})
+
+	t.Run("missing static file", func(t *testing.T) {
+		defer expectPanic(t)
+		s.StaticAlias("/humans.txt", "humans.txt")
+	})
+
+	t.Run("reserved prefix", func(t *testing.T) {
+		defer expectPanic(t)
+		s.StaticAlias("/static/robots.txt", "robots.txt")
+	})
+}
+
+func TestServer_WebSocket_registration(t *testing.T) {
+	dir := newTestWebTree(t)
+	s := NewServer(&noopEngine{}, dir)
+
+	hub := s.WebSocket(WebSocketRoute{Path: "/ws"})
+	if hub == nil {
+		t.Fatal("expected hub")
+	}
+	// The hub is developer-facing only through this return value; the engine reaches
+	// the same instance through the internal bridge, which apps cannot import.
+	if got, _ := wsbridge.HubFor(s, "/ws").(*WebSocketHub); got != hub {
+		t.Fatal("bridge should resolve the registration hub")
+	}
+	if wsbridge.HubFor(s, "/other") != nil {
+		t.Fatal("unknown path should resolve to a nil hub")
+	}
+
+	t.Run("path missing leading slash", func(t *testing.T) {
+		defer expectPanic(t)
+		s.WebSocket(WebSocketRoute{Path: "ws"})
+	})
+
+	t.Run("duplicate path", func(t *testing.T) {
+		defer expectPanic(t)
+		s.WebSocket(WebSocketRoute{Path: "/ws"})
 	})
 }
 

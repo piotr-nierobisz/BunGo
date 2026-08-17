@@ -4,7 +4,7 @@ BunGo implements middleware under the concept of **Security Layers**. You global
 
 ## Creating a Security Layer
 
-A security layer receives a generic `bungo.Request` and resolves to a boolean determining whether traffic can progress. If any layer returns `false`, BunGo responds with **HTTP 401 Unauthorized** and does not run the route handler (for both Page and API routes).
+A security layer receives a generic `bungo.Request` and resolves to a boolean determining whether traffic can progress. If any layer returns `false`, BunGo responds with **HTTP 401 Unauthorized** and does not run the route handler (for Page, API, and WebSocket routes alike — on a WebSocket route the layers run before the upgrade, so a rejected client never opens a socket).
 
 ## Chaining Layers and Passing Data
 
@@ -54,7 +54,7 @@ srv.Security(bungo.SecurityLayer{
 ```
 
 ## Attaching Layers to Routes
-To protect APIs or pages, pass the layer names on `ApiRoute.SecurityLayer` or `PageRoute.SecurityLayer`. They are executed in order.
+To protect APIs, pages, or WebSocket routes, pass the layer names on `ApiRoute.SecurityLayer`, `PageRoute.SecurityLayer`, or `WebSocketRoute.SecurityLayer`. They are executed in order.
 
 ```go
 srv.Api(bungo.ApiRoute{
@@ -76,4 +76,4 @@ srv.Api(bungo.ApiRoute{
 })
 ```
 
-Next: [CLI and Tools](./cli-tools.md).
+Next: [WebSockets](./websockets.md).

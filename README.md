@@ -17,9 +17,10 @@ For complete guides, usage patterns, and best practices, **please refer to our n
 4. [Templates and Layouts](./docs/templates-and-layouts.md)
 5. [React Integration](./docs/react-integration.md)
 6. [Security Layers](./docs/security-layers.md)
-7. [CLI and Dev Tools](./docs/cli-tools.md)
-8. [Deployment Options](./docs/deployment.md)
-9. [AI-Assisted Development Guide](./docs/ai-guide.md)
+7. [WebSockets](./docs/websockets.md)
+8. [CLI and Dev Tools](./docs/cli-tools.md)
+9. [Deployment Options](./docs/deployment.md)
+10. [AI-Assisted Development Guide](./docs/ai-guide.md)
 
 ---
 

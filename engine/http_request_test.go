@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -181,6 +182,57 @@ func TestCreateHandler_static(t *testing.T) {
 	if rec.Code != http.StatusOK || rec.Body.String() != "hello" {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
+}
+
+func TestCreateHandler_staticAlias(t *testing.T) {
+	dir := mustWebDir(t)
+	mustWrite(t, filepath.Join(dir, "static", "robots.txt"), "User-agent: *")
+	mustWrite(t, filepath.Join(dir, "static", "seo", "sitemap.xml"), "<urlset/>")
+
+	eng := NewHTTPEngine()
+	srv := bungo.NewServer(eng, dir)
+	srv.StaticAlias("/robots.txt", "robots.txt")
+	srv.StaticAlias("/sitemap.xml", "seo/sitemap.xml")
+
+	h, err := eng.CreateHandler(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("GET root alias", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/robots.txt", nil))
+		if rec.Code != http.StatusOK || rec.Body.String() != "User-agent: *" {
+			t.Fatalf("%d %s", rec.Code, rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+			t.Fatalf("content type: %q", ct)
+		}
+	})
+
+	t.Run("GET nested target", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sitemap.xml", nil))
+		if rec.Code != http.StatusOK || rec.Body.String() != "<urlset/>" {
+			t.Fatalf("%d %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("POST rejected", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/robots.txt", nil))
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatal(rec.Code)
+		}
+	})
+
+	t.Run("target still served under /static/", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/robots.txt", nil))
+		if rec.Code != http.StatusOK || rec.Body.String() != "User-agent: *" {
+			t.Fatalf("%d %s", rec.Code, rec.Body.String())
+		}
+	})
 }
 
 func TestCreateHandler_optimizedBungo(t *testing.T) {

@@ -2,7 +2,10 @@ package engine_aws
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -178,5 +181,45 @@ func TestLambdaEngine_initHandler_emptyWebDir(t *testing.T) {
 	_, err = h(context.Background(), events.APIGatewayV2HTTPRequest{})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLambdaEngine_dispatch_staticAlias(t *testing.T) {
+	dir := t.TempDir()
+	for _, sub := range []string{"layouts", "views", "static"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "static", "robots.txt"), []byte("User-agent: *"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := NewLambdaEngine()
+	srv := bungo.NewServer(nil, dir)
+	srv.StaticAlias("/robots.txt", "robots.txt")
+
+	ev := events.APIGatewayV2HTTPRequest{
+		RawPath: "/robots.txt",
+		RequestContext: events.APIGatewayV2HTTPRequestContext{
+			HTTP: events.APIGatewayV2HTTPRequestContextHTTPDescription{Method: http.MethodGet, Path: "/robots.txt"},
+		},
+	}
+	resp, err := e.dispatch(context.Background(), ev, srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || !resp.IsBase64Encoded {
+		t.Fatalf("%d base64=%v %s", resp.StatusCode, resp.IsBase64Encoded, resp.Body)
+	}
+	body, decodeErr := base64.StdEncoding.DecodeString(resp.Body)
+	if decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if string(body) != "User-agent: *" {
+		t.Fatalf("body: %q", body)
+	}
+	if !strings.HasPrefix(resp.Headers["Content-Type"], "text/plain") {
+		t.Fatalf("content type: %q", resp.Headers["Content-Type"])
 	}
 }

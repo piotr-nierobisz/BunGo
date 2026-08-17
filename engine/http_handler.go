@@ -8,6 +8,7 @@ import (
 
 	bungo "github.com/piotr-nierobisz/BunGo"
 	"github.com/piotr-nierobisz/BunGo/internal/builder"
+	"github.com/piotr-nierobisz/BunGo/internal/wsbridge"
 )
 
 // CreateHandler builds an HTTP handler mux with static, page, and API routes.
@@ -30,27 +31,15 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 	// Serve static assets from memory-first storage when static directory exists.
 	if srv.AssetStorage().Exists("static") {
 		mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet {
-				http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-				return
-			}
+			serveStaticFile(w, r, srv, strings.TrimPrefix(r.URL.Path, "/static/"))
+		})
+	}
 
-			requestPath := strings.TrimPrefix(r.URL.Path, "/static/")
-			content, err := srv.AssetStorage().ReadStaticFile(requestPath)
-			if err != nil {
-				http.NotFound(w, r)
-				return
-			}
-
-			ext := filepath.Ext(strings.ToLower(requestPath))
-			contentType := mime.TypeByExtension(ext)
-			if contentType == "" {
-				contentType = http.DetectContentType(content)
-			}
-
-			w.Header().Set("Content-Type", contentType)
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(content)
+	// Serve registered static aliases at their root URL paths (e.g. /robots.txt).
+	for urlPath, staticPath := range srv.StaticAliases {
+		staticRef := staticPath
+		mux.HandleFunc(urlPath, func(w http.ResponseWriter, r *http.Request) {
+			serveStaticFile(w, r, srv, staticRef)
 		})
 	}
 
@@ -77,6 +66,14 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 		mux.HandleFunc(path, e.createPageHandler(srv, &routeRef))
 	}
 
+	// Register WebSockets. The hub lives in the core Server's unexported registry;
+	// resolve it through the internal bridge, since engines are a separate package.
+	for path, wsRoute := range srv.WebSockets {
+		routeRef := wsRoute
+		hub, _ := wsbridge.HubFor(srv, path).(*bungo.WebSocketHub)
+		mux.HandleFunc(path, e.createWebSocketHandler(srv, &routeRef, hub))
+	}
+
 	// Register APIs
 	for _, apiRoute := range srv.APIs {
 		routeRef := apiRoute
@@ -92,4 +89,35 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 	}
 
 	return mux, nil
+}
+
+// serveStaticFile writes one GET response for a static asset resolved through AssetStorage.
+// Inputs:
+// - w: response writer receiving the file contents or error status.
+// - r: incoming request; non-GET methods are rejected with 405.
+// - srv: BunGo server registry providing the asset storage.
+// - staticPath: file path relative to webDir/static to resolve and serve.
+// Outputs:
+// - none
+func serveStaticFile(w http.ResponseWriter, r *http.Request, srv *bungo.Server, staticPath string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	content, err := srv.AssetStorage().ReadStaticFile(staticPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	ext := filepath.Ext(strings.ToLower(staticPath))
+	contentType := mime.TypeByExtension(ext)
+	if contentType == "" {
+		contentType = http.DetectContentType(content)
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(content)
 }

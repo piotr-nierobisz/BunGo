@@ -3,9 +3,25 @@ package bungo
 import (
 	"fmt"
 	"net/http"
+	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/piotr-nierobisz/BunGo/internal/wsbridge"
 )
+
+// init wires the engine-facing WebSocket hub lookup. Engines live in separate
+// packages and cannot read the Server's unexported hub registry directly, so they
+// resolve a route's hub through wsbridge; application code has no access to that
+// internal package and reaches a hub only via Server.WebSocket's return value.
+func init() {
+	wsbridge.HubFor = func(srv any, path string) any {
+		if hub, ok := srv.(*Server).webSocketHubs[path]; ok {
+			return hub
+		}
+		return nil // untyped nil so an unknown path is a nil interface, not a typed-nil pointer
+	}
+}
 
 // Invoker represents the execution environment starting the server.
 // We define it locally to avoid import cycle, since engine pkg depends on bungo
@@ -17,12 +33,15 @@ type Engine interface {
 type Server struct {
 	Pages          map[string]PageRoute
 	APIs           map[string]ApiRoute
+	WebSockets     map[string]WebSocketRoute
 	SecurityLayers map[string]SecurityLayer
+	StaticAliases  map[string]string // root URL path -> file path relative to webDir/static
 	Engine         Engine
 	WebDir         string
 	DefaultLayout  string
 	optimizeAssets bool
 	assetStorage   *AssetStorage
+	webSocketHubs  map[string]*WebSocketHub
 }
 
 // NewServer creates a Server and validates required web directory structure at startup.
@@ -32,9 +51,9 @@ type Server struct {
 // Outputs:
 // - *Server: initialized server registry with empty route and security maps.
 func NewServer(engine Engine, webDir string) *Server {
-	if webDir != "" {
-		storage := newAssetStorage(webDir, getEmbeddedAssetsFS())
+	storage := newAssetStorage(webDir, getEmbeddedAssetsFS())
 
+	if webDir != "" {
 		// Fail-fast architecture check
 		if !storage.Exists("") {
 			panic(fmt.Sprintf("BunGo Startup Error: Base web directory '%s' does not exist.", webDir))
@@ -45,24 +64,18 @@ func NewServer(engine Engine, webDir string) *Server {
 		if !storage.Exists("views") {
 			panic(fmt.Sprintf("BunGo Startup Error: 'views' subdirectory must exist inside '%s'.", webDir))
 		}
-
-		return &Server{
-			Pages:          make(map[string]PageRoute),
-			APIs:           make(map[string]ApiRoute),
-			SecurityLayers: make(map[string]SecurityLayer),
-			Engine:         engine,
-			WebDir:         webDir,
-			assetStorage:   storage,
-		}
 	}
 
 	return &Server{
 		Pages:          make(map[string]PageRoute),
 		APIs:           make(map[string]ApiRoute),
+		WebSockets:     make(map[string]WebSocketRoute),
 		SecurityLayers: make(map[string]SecurityLayer),
+		StaticAliases:  make(map[string]string),
 		Engine:         engine,
 		WebDir:         webDir,
-		assetStorage:   newAssetStorage(webDir, getEmbeddedAssetsFS()),
+		assetStorage:   storage,
+		webSocketHubs:  make(map[string]*WebSocketHub),
 	}
 }
 
@@ -153,6 +166,43 @@ func (s *Server) Api(route ApiRoute) {
 	s.APIs[route.Version+":"+route.Method+":"+route.Path] = route
 }
 
+// StaticAlias publishes one file from webDir/static at an additional root URL path.
+// The alias URL must carry the same file extension as the target static file, so a
+// URL never misrepresents the content type it serves (e.g. "/robots.txt" may only
+// map onto a ".txt" file). Registration is fail-fast: the target file must already
+// exist in the static directory.
+// Inputs:
+// - urlPath: absolute URL path to publish, for example "/robots.txt" or "/sitemap.xml".
+// - staticPath: target file path relative to webDir/static, for example "robots.txt" or "seo/sitemap.xml".
+// Outputs:
+// - none
+func (s *Server) StaticAlias(urlPath string, staticPath string) {
+	if !strings.HasPrefix(urlPath, "/") {
+		panic(fmt.Sprintf("BunGo Routing Error: StaticAlias urlPath '%s' must start with '/'.", urlPath))
+	}
+	for _, reserved := range []string{"/static/", "/api/", "/_bungo/"} {
+		if strings.HasPrefix(urlPath, reserved) {
+			panic(fmt.Sprintf("BunGo Routing Error: StaticAlias urlPath '%s' must not use the reserved '%s' prefix.", urlPath, reserved))
+		}
+	}
+
+	cleanStatic := strings.TrimPrefix(strings.TrimSpace(staticPath), "/")
+	urlExt := path.Ext(urlPath)
+	fileExt := path.Ext(cleanStatic)
+	if urlExt == "" {
+		panic(fmt.Sprintf("BunGo Routing Error: StaticAlias urlPath '%s' must end with a file extension.", urlPath))
+	}
+	if !strings.EqualFold(urlExt, fileExt) {
+		panic(fmt.Sprintf("BunGo Routing Error: StaticAlias urlPath '%s' extension does not match static file '%s'.", urlPath, staticPath))
+	}
+
+	if !s.assetStorage.Exists(path.Join("static", cleanStatic)) {
+		panic(fmt.Sprintf("BunGo Routing Error: StaticAlias file '%s' does not exist in the static directory.", staticPath))
+	}
+
+	s.StaticAliases[urlPath] = cleanStatic
+}
+
 // validateHTTPMethod trims whitespace, uppercases the method, and panics when it is empty or not a supported standard HTTP verb.
 // Inputs:
 // - method: raw ApiRoute.Method value (for example "GET", "get", or " Post ").
@@ -171,6 +221,28 @@ func validateHTTPMethod(method string) string {
 	default:
 		panic(fmt.Sprintf("BunGo Routing Error: ApiRoute.Method %q is not a valid HTTP method (use a standard verb such as GET, POST, PUT, PATCH, DELETE).", method))
 	}
+}
+
+// WebSocket registers a WebSocket route and returns the hub that fans messages out
+// to its connections. The returned hub is the only handle to the route's hub — hold
+// onto it (capture it in a closure, or store it) wherever you need to broadcast or
+// publish; there is no lookup-a-hub-by-path accessor to fat-finger.
+// Inputs:
+// - route: WebSocket route configuration with path, security layers, and lifecycle callbacks.
+// Outputs:
+// - *WebSocketHub: hub bound to the route, usable from any handler or goroutine to broadcast or publish.
+func (s *Server) WebSocket(route WebSocketRoute) *WebSocketHub {
+	if !strings.HasPrefix(route.Path, "/") {
+		panic(fmt.Sprintf("BunGo Routing Error: WebSocketRoute.Path '%s' must start with '/'.", route.Path))
+	}
+	if _, exists := s.WebSockets[route.Path]; exists {
+		panic(fmt.Sprintf("BunGo Routing Error: WebSocketRoute.Path '%s' is already registered.", route.Path))
+	}
+
+	hub := newWebSocketHub()
+	s.WebSockets[route.Path] = route
+	s.webSocketHubs[route.Path] = hub
+	return hub
 }
 
 // Security registers a named security layer in the server security registry.
