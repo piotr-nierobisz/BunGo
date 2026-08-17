@@ -66,7 +66,7 @@ Subscriptions are cleaned up automatically when a connection disconnects. A typi
 
 ## Security and origin policy
 
-- **Security layers run before the upgrade.** A rejected client receives a plain HTTP `401 Unauthorized` and never opens a socket; a missing layer name yields `500`, exactly like Page and API routes. Values a layer writes into `req.Internal` travel with the connection for its whole lifetime.
+- **Security layers run before the upgrade.** A rejected client receives a plain HTTP rejection — `401 Unauthorized` by default, or the layer's [custom rejection response](./security-layers.md) — and never opens a socket; a missing layer name yields `500`, exactly like Page and API routes. Values a layer writes into `req.Internal` travel with the connection for its whole lifetime.
 - **Same-host origin by default.** Browsers send an `Origin` header; when it does not match the request host, the handshake is refused with `403`. Override per route when you need cross-origin clients:
 
 ```go
@@ -79,6 +79,8 @@ srv.WebSocket(bungo.WebSocketRoute{
 ```
 
 - **Inbound frame size** is capped at 1 MiB by default; set `MaxMessageSize` (bytes) on the route to change it.
+
+API routes accept the same `CheckOrigin` callback (there with no default policy — nil means no check); see [Security Layers](./security-layers.md#origin-checks-on-api-routes).
 
 ## Connection lifecycle details
 

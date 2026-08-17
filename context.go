@@ -14,11 +14,13 @@ type Request struct {
 	Internal map[string]any // For passing context between Security Layers and Handlers
 }
 
-// APIResponse represents an API response
+// APIResponse represents an API response. Security layers reuse the same shape
+// for custom rejection responses (see SecurityLayer).
 type APIResponse struct {
 	StatusCode int
 	Body       any
-	Cookies    []Cookie // Optional Set-Cookie headers emitted with the response
+	Headers    map[string]string // Optional response headers; each overrides a same-named Server.SetResponseHeaders entry
+	Cookies    []Cookie          // Optional Set-Cookie headers emitted with the response
 }
 
 // SameSiteMode controls the SameSite attribute on a Cookie.

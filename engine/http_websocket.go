@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"log"
 	"net/http"
 	"time"
 
@@ -111,17 +110,8 @@ func (e *HTTPEngine) createWebSocketHandler(srv *bungo.Server, route *bungo.WebS
 		}
 
 		// Daisy-chained Security Layers, before the upgrade so rejections stay plain HTTP.
-		for _, layerName := range route.SecurityLayer {
-			if layer, ok := srv.SecurityLayers[layerName]; ok {
-				if !layer.Handler(breq) {
-					http.Error(w, "Unauthorized", http.StatusUnauthorized)
-					return
-				}
-			} else {
-				log.Printf("BunGo Security Error: Security Layer '%s' was requested but is not registered.", layerName)
-				http.Error(w, "Internal Server Error: Application Misconfigured", http.StatusInternalServerError)
-				return
-			}
+		if !e.runSecurityLayers(w, srv, route.SecurityLayer, breq) {
+			return
 		}
 
 		upgrader := websocket.Upgrader{ReadBufferSize: 1024, WriteBufferSize: 1024}

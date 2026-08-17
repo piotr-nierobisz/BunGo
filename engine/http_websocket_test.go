@@ -240,8 +240,10 @@ func TestWebSocket_securityLayerRejectsBeforeUpgrade(t *testing.T) {
 	eng := NewHTTPEngine()
 	srv := bungo.NewServer(eng, dir)
 	srv.Security(bungo.SecurityLayer{
-		Name:    "gate",
-		Handler: func(req *bungo.Request) bool { return req.Headers["X-Token"] == "good" },
+		Name: "gate",
+		Handler: func(req *bungo.Request) (bool, *bungo.APIResponse) {
+			return req.Headers["X-Token"] == "good", nil
+		},
 	})
 	srv.WebSocket(bungo.WebSocketRoute{Path: "/ws", SecurityLayer: []string{"gate"}})
 
@@ -268,9 +270,9 @@ func TestWebSocket_securityLayerPopulatesSessionRequest(t *testing.T) {
 	srv := bungo.NewServer(eng, dir)
 	srv.Security(bungo.SecurityLayer{
 		Name: "auth",
-		Handler: func(req *bungo.Request) bool {
+		Handler: func(req *bungo.Request) (bool, *bungo.APIResponse) {
 			req.Internal["UserID"] = "u-42"
-			return true
+			return true, nil
 		},
 	})
 

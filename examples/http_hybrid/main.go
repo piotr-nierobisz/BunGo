@@ -26,10 +26,10 @@ func main() {
 
 	srv.Security(bungo.SecurityLayer{
 		Name: "security_check",
-		Handler: func(req *bungo.Request) bool {
+		Handler: func(req *bungo.Request) (bool, *bungo.APIResponse) {
 			log.Println("Executing security layer: security_check")
 			authHeader := req.Headers["Authorization"]
-			return authHeader == "pork-up"
+			return authHeader == "pork-up", nil // nil rejection response → default 401
 		},
 	})
 

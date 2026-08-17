@@ -1,9 +1,19 @@
 package bungo
 
 // SecurityLayer represents a reusable security layer that can be applied to routes.
+//
+// Handler decides whether traffic may continue to the next layer and, on
+// rejection, optionally shapes the response:
+//
+//   - return (true, _) to pass; a returned response is ignored on pass
+//   - return (false, nil) to reject with the default 401 Unauthorized
+//   - return (false, resp) to reject with resp — engines honor StatusCode
+//     (0 defaults to 401), Headers, Cookies, and Body (nil writes no body,
+//     anything else is JSON-encoded), so a layer can emit a 429 rate limit,
+//     a 403, or a redirect (StatusCode 302 plus a "Location" header)
 type SecurityLayer struct {
 	Name    string
-	Handler func(req *Request) bool
+	Handler func(req *Request) (bool, *APIResponse)
 }
 
 // PageRoute configures a single page route.
@@ -31,10 +41,16 @@ type PageRoute struct {
 //
 // Method must be a standard HTTP verb (GET, HEAD, POST, PUT, PATCH, DELETE, CONNECT, OPTIONS, TRACE).
 // Registration normalizes it to uppercase; invalid or empty values panic at Api registration time.
+//
+// CheckOrigin is optional: when set, engines call it before the security layers
+// (read the caller's origin via req.Headers["Origin"]) and reject the request
+// with 403 Forbidden when it returns false. When nil, no origin check runs —
+// unlike WebSocket routes, API routes apply no default origin policy.
 type ApiRoute struct {
 	Path          string
 	Version       string
 	Method        string
 	SecurityLayer []string
+	CheckOrigin   func(req *Request) bool
 	Handler       func(req *Request) (APIResponse, error)
 }

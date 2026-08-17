@@ -54,6 +54,21 @@ srv.Page(bungo.PageRoute{
 
 The data you return from this handler is automatically shipped seamlessly as JSON directly into your React components.
 
+### Custom not-found page
+
+Unmatched paths normally fall through to the `/` page route (`ServeMux` subtree root semantics). To serve a real 404 page instead, register a page at the sentinel path `bungo.NotFoundPath`:
+
+```go
+srv.Page(bungo.PageRoute{
+    Path:     bungo.NotFoundPath, // "bungo:404" — never collides with a real URL
+    Template: "not_found.gohtml",
+    Layout:   "base.gohtml",      // optional, like any page
+    View:     "not_found.jsx",    // optional, like any page
+})
+```
+
+It is a full `PageRoute` — `Template`, `Layout`, `View`, `Handler`, and `SecurityLayer` all behave exactly as on a regular page — but engines render it with **HTTP 404** for any unmatched non-API `GET` path. The `/` route keeps serving exactly `/`. Unmatched `/api/...` paths never reach it: they answer with a JSON 404 (or a 405 with an `Allow` header when the path exists under other methods).
+
 ## Creating API Routes
 For explicit JSON endpoints, use **API Routes**. These are bound to specific HTTP methods (`GET`, `POST`, etc.) and enforce RESTful responses.
 
@@ -76,7 +91,7 @@ srv.Api(bungo.ApiRoute{
 })
 ```
 
-Failed security layers on page or API routes return **HTTP 401 Unauthorized**; see [Security Layers](./security-layers.md).
+Failed security layers on page or API routes return **HTTP 401 Unauthorized** by default, or a custom rejection response (a 429 rate limit, a 403, a redirect) when the layer supplies one; API routes can also refuse cross-origin callers via `CheckOrigin`. See [Security Layers](./security-layers.md).
 
 ### Setting cookies from API handlers
 
@@ -136,6 +151,30 @@ httpEngine.SetCookieConverter(func(c bungo.Cookie) *http.Cookie {
 ```
 
 Passing `nil` to `SetCookieConverter` restores the engine's default. [Custom engines](./deployment.md) should follow the same pattern: keep `bungo.Cookie` transport-neutral and serialize it at the engine boundary.
+
+### Setting response headers
+
+Response headers work at two levels. `srv.SetResponseHeaders` registers global headers emitted on **every** response — pages, APIs, static files, and pre-upgrade WebSocket responses — which is the place for site-wide security headers. Call it before `Serve`; engines snapshot the map at startup.
+
+```go
+srv.SetResponseHeaders(map[string]string{
+    "Content-Security-Policy":   "default-src 'self'",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+    "X-Frame-Options":           "DENY",
+})
+```
+
+Per response, an API handler sets `APIResponse.Headers`; each entry overrides a same-named global header:
+
+```go
+return bungo.APIResponse{
+    StatusCode: 200,
+    Body:       report,
+    Headers:    map[string]string{"Cache-Control": "no-store"},
+}, nil
+```
+
+Security layers use the same `Headers` field on their rejection responses — see [Security Layers](./security-layers.md) for redirects and rate-limit replies.
 
 ### Path parameters and query strings
 

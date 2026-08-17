@@ -29,19 +29,32 @@ type Engine interface {
 	Start(address string, srv *Server) error
 }
 
+// NotFoundPath is the sentinel PageRoute.Path that registers the custom
+// not-found page. Register it like any other page — Template, Layout, View,
+// Handler, and SecurityLayer all work:
+//
+//	srv.Page(bungo.PageRoute{Path: bungo.NotFoundPath, Template: "not_found.gohtml"})
+//
+// Engines render this page with HTTP 404 for any unmatched non-API GET path
+// instead of letting the request fall through to the "/" subtree root. The
+// value is deliberately not a valid URL path, so it can never collide with a
+// real route.
+const NotFoundPath = "bungo:404"
+
 // Server is the central registry for the BunGo application.
 type Server struct {
-	Pages          map[string]PageRoute
-	APIs           map[string]ApiRoute
-	WebSockets     map[string]WebSocketRoute
-	SecurityLayers map[string]SecurityLayer
-	StaticAliases  map[string]string // root URL path -> file path relative to webDir/static
-	Engine         Engine
-	WebDir         string
-	DefaultLayout  string
-	optimizeAssets bool
-	assetStorage   *AssetStorage
-	webSocketHubs  map[string]*WebSocketHub
+	Pages           map[string]PageRoute
+	APIs            map[string]ApiRoute
+	WebSockets      map[string]WebSocketRoute
+	SecurityLayers  map[string]SecurityLayer
+	StaticAliases   map[string]string // root URL path -> file path relative to webDir/static
+	Engine          Engine
+	WebDir          string
+	DefaultLayout   string
+	optimizeAssets  bool
+	assetStorage    *AssetStorage
+	webSocketHubs   map[string]*WebSocketHub
+	responseHeaders map[string]string
 }
 
 // NewServer creates a Server and validates required web directory structure at startup.
@@ -123,6 +136,32 @@ func (s *Server) SetDefaultLayout(path string) {
 		}
 	}
 	s.DefaultLayout = path
+}
+
+// SetResponseHeaders sets headers emitted on every response — pages, APIs, static
+// files, and pre-upgrade WebSocket responses alike — the place for global security
+// headers such as Content-Security-Policy or Strict-Transport-Security. A
+// per-response APIResponse.Headers entry overrides a same-named global header.
+// The map is copied, and engines snapshot it at startup: call this before Serve.
+// Inputs:
+// - headers: header name → value map applied to every response; nil or empty clears the global set.
+// Outputs:
+// - none
+func (s *Server) SetResponseHeaders(headers map[string]string) {
+	copied := make(map[string]string, len(headers))
+	for k, v := range headers {
+		copied[k] = v
+	}
+	s.responseHeaders = copied
+}
+
+// ResponseHeaders returns the global response header set for engines to apply.
+// Inputs:
+// - none
+// Outputs:
+// - map[string]string: headers configured via SetResponseHeaders; treat as read-only.
+func (s *Server) ResponseHeaders() map[string]string {
+	return s.responseHeaders
 }
 
 // SetAssetOptimization toggles static module delivery for compiled page view bundles.

@@ -61,7 +61,7 @@ You almost never need to reimplement routing. `engine.NewHTTPEngine().CreateHand
 
 This unlocks the entire `net/http` ecosystem — middleware, custom `http.Server` timeouts, graceful shutdown, and any platform that accepts an `http.Handler`.
 
-**Example: a hardened production engine** that adds response headers and server timeouts:
+**Example: a hardened production engine** that adds response headers and server timeouts. (Static security headers alone no longer require a custom engine — `srv.SetResponseHeaders` covers that; the engine seam buys you arbitrary middleware and full `http.Server` control.)
 
 ```go
 package main
@@ -108,53 +108,25 @@ func main() {
 }
 ```
 
-**Example: a serverless adapter.** Most function platforms (Google Cloud Functions, AWS Lambda via an `http.Handler` proxy, Cloudflare, Fly Machines, ...) ultimately accept an `http.Handler`, so an adapter is a few lines. A Google Cloud Functions engine looks like this:
-
-```go
-import (
-    "strings"
-
-    "github.com/GoogleCloudPlatform/functions-framework-go/funcframework"
-    "github.com/GoogleCloudPlatform/functions-framework-go/functions"
-    bungo "github.com/piotr-nierobisz/BunGo"
-    "github.com/piotr-nierobisz/BunGo/engine"
-)
-
-// CloudFunctionEngine hosts BunGo inside the GCP Functions Framework.
-// EntryPoint must match the entry point configured at deploy time.
-type CloudFunctionEngine struct{ EntryPoint string }
-
-func (e *CloudFunctionEngine) Start(address string, srv *bungo.Server) error {
-    handler, err := engine.NewHTTPEngine().CreateHandler(srv)
-    if err != nil {
-        return err
-    }
-    functions.HTTP(e.EntryPoint, handler.ServeHTTP)
-    return funcframework.Start(strings.TrimPrefix(address, ":"))
-}
-```
-
-For AWS Lambda, pair the same `CreateHandler` output with a Lambda→`http.Handler` proxy such as [`awslabs/aws-lambda-go-api-proxy`](https://github.com/awslabs/aws-lambda-go-api-proxy)'s `httpadapter`, and have `Start` call `lambda.Start(...)` instead of listening on a port. Note that serverless platforms cannot hold long-lived connections, so [WebSocket routes](./websockets.md) will not work there regardless of the adapter.
+**Serverless platforms.** Most function platforms ultimately accept an `http.Handler`, so an adapter is a few lines: inside `Start`, obtain the handler from `CreateHandler`, register it with the platform's Go framework (or its `http.Handler` proxy), and start that framework instead of listening on a port. Note that serverless platforms cannot hold long-lived connections, so [WebSocket routes](./websockets.md) will not work there regardless of the adapter. Dedicated `engine/aws` and `engine/gcp` modules were removed in `v0.5.0` — pin them at `@v0.4.0` if you still depend on them, or port to a small custom engine as shown here.
 
 ### The from-scratch path: custom transports
 
 If your environment does not speak `net/http` at all, implement dispatch yourself against the `srv` registries. The building blocks:
 
 - **Request translation.** Build a `*bungo.Request` per incoming event: `Context` (request-scoped `context.Context`), `Headers` and `Params` (first value per key), `Body` (raw bytes), and an empty `Internal` map for security layers to populate.
-- **API routes.** `srv.APIs` is keyed `Version:METHOD:Path` (e.g. `v1:GET:/users`, matching the values passed to `srv.Api`). Run the route's security layers first, then the handler; marshal `APIResponse.Body` to JSON and honor `APIResponse.StatusCode`.
+- **API routes.** `srv.APIs` is keyed `Version:METHOD:Path` (e.g. `v1:GET:/users`, matching the values passed to `srv.Api`). When the route sets `CheckOrigin`, call it before anything else and answer `403 Forbidden` on `false`. Then run the security layers and the handler; marshal `APIResponse.Body` to JSON and honor `APIResponse.StatusCode`, `Headers`, and `Cookies`. An unmatched path under your API prefix should answer a plain `404` (or `405` when the path exists under other methods), never a page.
 - **Page routes.** `srv.Pages` is keyed by exact path and should only match `GET`. After security layers and the optional handler, render with:
   ```go
   templatePath, layoutPath := srv.ResolvePageTemplatePaths(&route)
   html, err := bungo.RenderTemplate(srv.AssetStorage(), templatePath, layoutPath, inlineJS, moduleSrc, pageData)
   ```
-- **Security layers.** Look up each name on the route in `srv.SecurityLayers`, execute in order, and stop with `401 Unauthorized` when a handler returns `false`. Treat an unregistered layer name as a `500` misconfiguration, never as a pass.
+  The route stored under `bungo.NotFoundPath` (if any) is the custom not-found page: render it like a normal page but with status `404` for unmatched non-API paths.
+- **Security layers.** Look up each name on the route in `srv.SecurityLayers`, execute in order, and stop when a handler returns `false`: write the returned `*APIResponse` when non-nil (honor `StatusCode` — `0` means `401` — `Headers`, `Cookies`, and `Body`), otherwise a default `401 Unauthorized`. Treat an unregistered layer name as a `500` misconfiguration, never as a pass.
+- **Response headers.** Apply every `srv.ResponseHeaders()` entry to each response before writing it; a per-response `APIResponse.Headers` entry wins on conflict.
 - **Cookies.** Serialize each `APIResponse.Cookies` entry into whatever `Set-Cookie` representation your transport expects (the built-in engines expose this as a swappable converter — see [Routing and Pages](./routing-and-pages.md)).
 - **Static assets.** Serve `/static/...` and the `srv.StaticAliases` map through `srv.AssetStorage().ReadStaticFile(...)`, which reads embedded assets first and falls back to disk.
 
 One important caveat: JSX/TSX view compilation lives in BunGo's internal packages and is not exported. A from-scratch engine therefore cannot produce the `inlineJS`/`moduleSrc` bundles for React views on its own — go from scratch only for API-only servers or pure server-rendered pages (no `View` set), and build on `CreateHandler` for everything else.
-
-### A note on the removed AWS/GCP adapters
-
-Versions up to `v0.4.x` shipped dedicated `engine/aws` and `engine/gcp` modules. They were removed in `v0.5.0` in favor of the adapter patterns above, which stay current with your platform's own tooling instead of pinning BunGo to specific cloud SDKs. If you depended on them, pin the old modules (`github.com/piotr-nierobisz/BunGo/engine/aws@v0.4.0`, `github.com/piotr-nierobisz/BunGo/engine/gcp@v0.4.0`) or port to a small custom engine as shown here.
 
 If you use AI-assisted development tools, the [AI Agent Reference](./ai-guide.md) provides a self-contained rules text you can copy into your project to give coding agents full context on BunGo's architecture and conventions.

@@ -88,7 +88,7 @@ func TestServer_Page_Api_Security_integration(t *testing.T) {
 	eng := &noopEngine{}
 	s := NewServer(eng, dir)
 
-	s.Security(SecurityLayer{Name: "ok", Handler: func(req *Request) bool { return true }})
+	s.Security(SecurityLayer{Name: "ok", Handler: func(req *Request) (bool, *APIResponse) { return true, nil }})
 
 	s.Page(PageRoute{
 		Path:     "/",

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>{{.PageTitle}}</title>
+    <style>
+        body { font-family: sans-serif; max-width: 40rem; margin: 2rem auto; }
+        #log { list-style: none; padding: 0; min-height: 12rem; }
+        #log li { padding: 0.25rem 0; border-bottom: 1px solid #eee; }
+        form { display: flex; gap: 0.5rem; }
+        input { flex: 1; padding: 0.5rem; }
+    </style>
+</head>
+<body>
+    <h1>{{.PageTitle}}</h1>
+    <p>Open this page in two browser tabs and chat with yourself.</p>
+    <ul id="log"></ul>
+    <form id="form">
+        <input id="msg" autocomplete="off" placeholder="say something" />
+        <button>Send</button>
+    </form>
+    <script>
+        const log = document.getElementById("log");
+        const scheme = location.protocol === "https:" ? "wss" : "ws";
+        const ws = new WebSocket(scheme + "://" + location.host + "/ws/chat");
+        ws.onmessage = (event) => {
+            const li = document.createElement("li");
+            li.textContent = event.data;
+            log.appendChild(li);
+        };
+        document.getElementById("form").addEventListener("submit", (event) => {
+            event.preventDefault();
+            const input = document.getElementById("msg");
+            if (input.value && ws.readyState === WebSocket.OPEN) ws.send(input.value);
+            input.value = "";
+        });
+    </script>
+</body>
+</html>

@@ -17,9 +17,11 @@ func main() {
 
 	srv.Security(bungo.SecurityLayer{
 		Name: "check_jwt_token",
-		Handler: func(req *bungo.Request) bool {
+		Handler: func(req *bungo.Request) (bool, *bungo.APIResponse) {
 			log.Println("Executing security layer: check_jwt_token")
-			return true
+			// On a browser page route a layer can redirect instead of 401:
+			//   return false, &bungo.APIResponse{StatusCode: 302, Headers: map[string]string{"Location": "/login"}}
+			return true, nil
 		},
 	})
 

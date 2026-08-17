@@ -4,6 +4,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	bungo "github.com/piotr-nierobisz/BunGo"
@@ -60,10 +61,41 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 		})
 	}
 
-	// Register Pages
+	// Register Pages. The root path and the bungo.NotFoundPath sentinel need the
+	// combined dispatcher below: pattern "/" is a ServeMux subtree root, so it
+	// doubles as the fallback for every otherwise-unmatched path.
+	rootRoute, hasRoot := srv.Pages["/"]
+	notFoundRoute, hasNotFound := srv.Pages[bungo.NotFoundPath]
 	for path, pageRoute := range srv.Pages {
+		if path == "/" || path == bungo.NotFoundPath {
+			continue
+		}
 		routeRef := pageRoute
-		mux.HandleFunc(path, e.createPageHandler(srv, &routeRef))
+		mux.HandleFunc(path, e.createPageHandler(srv, &routeRef, http.StatusOK))
+	}
+	switch {
+	case hasNotFound:
+		notFoundHandler := e.createPageHandler(srv, &notFoundRoute, http.StatusNotFound)
+		var rootHandler http.HandlerFunc
+		if hasRoot {
+			rootHandler = e.createPageHandler(srv, &rootRoute, http.StatusOK)
+		}
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/" && rootHandler != nil {
+				rootHandler(w, r)
+				return
+			}
+			if r.Method != http.MethodGet {
+				// A non-GET to an unknown path is a plain 404, not a page render.
+				http.NotFound(w, r)
+				return
+			}
+			notFoundHandler(w, r)
+		})
+	case hasRoot:
+		// Without a not-found page, keep the historic ServeMux behavior: the "/"
+		// subtree root also answers every unmatched path.
+		mux.HandleFunc("/", e.createPageHandler(srv, &rootRoute, http.StatusOK))
 	}
 
 	// Register WebSockets. The hub lives in the core Server's unexported registry;
@@ -74,7 +106,9 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 		mux.HandleFunc(path, e.createWebSocketHandler(srv, &routeRef, hub))
 	}
 
-	// Register APIs
+	// Register APIs, remembering which methods exist per full path so the /api/
+	// fallback below can answer 405 with an Allow header instead of a 404.
+	apiMethods := make(map[string][]string)
 	for _, apiRoute := range srv.APIs {
 		routeRef := apiRoute
 		routePath := routeRef.Path
@@ -83,12 +117,44 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 		}
 		fullPath := "/api/" + routeRef.Version + routePath
 
-		pattern := strings.ToUpper(routeRef.Method) + " " + fullPath
+		method := strings.ToUpper(routeRef.Method)
+		pattern := method + " " + fullPath
 
 		mux.HandleFunc(pattern, e.createAPIHandler(srv, &routeRef))
+		apiMethods[fullPath] = append(apiMethods[fullPath], method)
 	}
 
-	return mux, nil
+	// Sort once at registration: request handlers must only read this map, so
+	// concurrent requests never mutate a shared slice.
+	for _, methods := range apiMethods {
+		sort.Strings(methods)
+	}
+
+	// Unmatched /api/ paths must never fall through to the "/" page subtree:
+	// answer 405 when the path exists under other methods, else a JSON 404.
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		if methods, ok := apiMethods[r.URL.Path]; ok {
+			w.Header().Set("Allow", strings.Join(methods, ", "))
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"Not Found"}`))
+	})
+
+	// Snapshot the global response headers once so a running server never races
+	// application code mutating the map; SetResponseHeaders is a pre-Serve call.
+	globalHeaders := srv.ResponseHeaders()
+	if len(globalHeaders) == 0 {
+		return mux, nil
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for k, v := range globalHeaders {
+			w.Header().Set(k, v)
+		}
+		mux.ServeHTTP(w, r)
+	}), nil
 }
 
 // serveStaticFile writes one GET response for a static asset resolved through AssetStorage.

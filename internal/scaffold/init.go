@@ -145,8 +145,10 @@ func main() {
 
 	srv.Security(bungo.SecurityLayer{
 		Name: "require-demo-token",
-		Handler: func(req *bungo.Request) bool {
-			return req.Headers["Authorization"] == "Bearer demo-token"
+		Handler: func(req *bungo.Request) (bool, *bungo.APIResponse) {
+			// Return (false, nil) for a default 401, or (false, &bungo.APIResponse{...})
+			// to shape the rejection (rate limits, redirects, custom bodies).
+			return req.Headers["Authorization"] == "Bearer demo-token", nil
 		},
 	})
 

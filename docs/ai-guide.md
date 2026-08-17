@@ -69,6 +69,17 @@ required and no static files are served.
 
     Returns whether optimized JS asset delivery is enabled.
 
+  func (s *Server) SetResponseHeaders(headers map[string]string)
+
+    Sets global headers emitted on every response (pages, APIs, static files, and
+    pre-upgrade WebSocket responses) — the place for CSP, HSTS, X-Frame-Options.
+    A per-response APIResponse.Headers entry overrides a same-named global header.
+    The map is copied and engines snapshot it at startup: call before Serve.
+
+  func (s *Server) ResponseHeaders() map[string]string
+
+    Returns the global response header set (engine-facing; treat as read-only).
+
   func (s *Server) Api(route ApiRoute)
 
     Registers an API route. The internal key is "Version:Method:Path".
@@ -114,10 +125,13 @@ required and no static files are served.
 --- APIResponse ---
 
   type APIResponse struct {
-      StatusCode int
-      Body       any         // Marshaled to JSON
-      Cookies    []Cookie    // Optional Set-Cookie headers emitted with the response
+      StatusCode int                 // 0 defaults to 200 on API routes, 401 on security rejections
+      Body       any                 // Marshaled to JSON
+      Headers    map[string]string   // Optional; each overrides a same-named global SetResponseHeaders entry
+      Cookies    []Cookie            // Optional Set-Cookie headers emitted with the response
   }
+
+  Security layers reuse APIResponse to shape custom rejection responses.
 
 --- Cookie ---
 
@@ -143,8 +157,14 @@ required and no static files are served.
 
   type SecurityLayer struct {
       Name    string
-      Handler func(req *Request) bool   // false → HTTP 401 Unauthorized
+      Handler func(req *Request) (bool, *APIResponse)
   }
+
+  Return (true, nil) to pass, (false, nil) for the default HTTP 401 Unauthorized,
+  or (false, &APIResponse{...}) to shape the rejection: StatusCode (0 → 401),
+  Headers, Cookies, and Body (nil → no body, otherwise JSON-encoded) are honored,
+  so a layer can emit a 429 rate limit, a 403, or a redirect-to-login
+  (StatusCode 302 plus a "Location" header) on browser page routes.
 
 --- PageRoute ---
 
@@ -169,6 +189,8 @@ required and no static files are served.
       Version       string               // e.g. "v1"  → full path: /api/v1/users
       Method        string               // Standard verb only; normalized to uppercase at registration
       SecurityLayer []string
+      CheckOrigin   func(req *Request) bool   // Optional; runs before security layers, false → 403 Forbidden.
+                                              // nil = no origin check (no default policy, unlike WebSockets)
       Handler       func(req *Request) (APIResponse, error)
   }
 
@@ -191,6 +213,9 @@ served by a small user-written engine implementing the Engine interface.
     BunGo AssetStorage (embedded memory first, disk fallback). Registered
     StaticAlias URLs (e.g. /robots.txt) are served the same way. Static requests
     do NOT pass through security layers.
+
+    Global headers registered via srv.SetResponseHeaders are applied to every
+    response this engine writes (pages, APIs, static, pre-upgrade WebSocket).
 
     WebSocket routes: served by this engine (and the HTTPS engine, which reuses
     its handler). Serverless environments cannot hold them.
@@ -224,8 +249,8 @@ served by a small user-written engine implementing the Engine interface.
     CreateHandler entirely are only suitable for API-only or template-only
     (no View) servers. See docs/deployment.md for full worked examples.
 
-Dedicated AWS Lambda and Google Cloud Functions engine modules were removed in
-v0.5.0; write a small custom engine (see above) for those platforms instead.
+There are no cloud-specific engine modules (the former engine/aws and engine/gcp
+were removed in v0.5.0); write a small custom engine (see above) instead.
 
 
 ### Templates and layouts
@@ -298,22 +323,30 @@ duplicate React instances.
 
 ### Security layers
 
-Security layers are named middleware that run before page or API handlers.
+Security layers are named middleware that run before page, API, or WebSocket handlers.
 
   srv.Security(bungo.SecurityLayer{
       Name: "require_auth",
-      Handler: func(req *bungo.Request) bool {
+      Handler: func(req *bungo.Request) (bool, *bungo.APIResponse) {
+          if tooManyAttempts(req) {
+              return false, &bungo.APIResponse{      // shaped rejection
+                  StatusCode: 429,
+                  Body:       map[string]any{"error": "rate limited"},
+              }
+          }
           if req.Headers["Authorization"] != "Bearer secret" {
-              return false   // → HTTP 401 Unauthorized
+              return false, nil   // → default HTTP 401 Unauthorized
           }
           req.Internal["UserID"] = 42   // pass data to later layers/handler
-          return true
+          return true, nil
       },
   })
 
 Attach to routes via SecurityLayer: []string{"require_auth", "another_layer"}.
 Layers execute in the order listed. If any returns false the chain stops and the
-response is HTTP 401 Unauthorized.
+response is the returned *APIResponse, or HTTP 401 Unauthorized when it is nil.
+A redirect-to-login for page routes is StatusCode 302 with Headers:
+map[string]string{"Location": "/login"}.
 
 req.Internal is a shared mutable map for passing data between layers and the final
 handler (e.g. parsed JWT claims).
@@ -341,7 +374,8 @@ single URL. Register them with srv.Page().
   })
 
 What happens at request time:
-  - Security layers run in order. If any returns false → 401 Unauthorized.
+  - Security layers run in order. If any rejects → its shaped response, or
+    401 Unauthorized by default.
   - Handler executes. The returned map becomes both Go template data and
     window.__BUNGO_DATA__ for the React view.
   - The template (home.gohtml) is rendered. If a Layout is set, the template's
@@ -352,6 +386,11 @@ What happens at request time:
 Template is always required. Layout is optional (can be set per-route or globally
 via SetDefaultLayout). View is optional — pages can be pure server-rendered HTML.
 Handler is optional — if nil, the template renders with no data.
+
+Custom not-found page: register a page at the sentinel path bungo.NotFoundPath
+("bungo:404"). Template, Layout, View, Handler, and SecurityLayer all work, and
+engines render it with HTTP 404 for any unmatched non-API GET path. Without it,
+unmatched paths fall through to the "/" page (ServeMux subtree root semantics).
 
 Example layout (web/layouts/base.gohtml):
 
@@ -407,6 +446,12 @@ API routes are registered with srv.Api(). The full HTTP path is /api/{Version}{P
   })
 
 This registers GET /api/v1/users. The response Body is marshaled to JSON.
+APIResponse.Headers adds per-response headers; APIResponse.Cookies plants cookies.
+Set ApiRoute.CheckOrigin to validate req.Headers["Origin"] before the security
+layers run — false yields 403 Forbidden; nil means no origin check.
+
+Unmatched /api/ paths never fall through to page routes: they return a JSON 404,
+or a 405 with an Allow header when the path exists under other methods.
 
 Path parameters such as `/api/v1/users/:id` are NOT supported—use a fixed Path like
 `/user` or `/users` and pass ids via query string (e.g. `?id=`) or request body.
@@ -463,7 +508,9 @@ Api() routes can be registered (Page routes require templates on disk).
     When using layouts, the Template must {{define "content"}}...{{end}} and the
     Layout must have {{block "content" .}}{{end}}.
 
-  - Security layers returning false produce HTTP 401 Unauthorized (not 403).
+  - Security layers rejecting with a nil response produce HTTP 401 Unauthorized.
+    Return (false, &bungo.APIResponse{...}) to emit another status, headers
+    (e.g. a 302 redirect via "Location"), cookies, or a JSON body instead.
 
   - Static files under web/static/ are public and bypass security layers.
     Never put secrets or user-specific files in static/.

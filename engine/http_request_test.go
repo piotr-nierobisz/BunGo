@@ -122,8 +122,8 @@ func TestCreateHandler_securityUnauthorized(t *testing.T) {
 	srv := bungo.NewServer(eng, dir)
 	srv.Security(bungo.SecurityLayer{
 		Name: "gate",
-		Handler: func(req *bungo.Request) bool {
-			return false
+		Handler: func(req *bungo.Request) (bool, *bungo.APIResponse) {
+			return false, nil
 		},
 	})
 	srv.Page(bungo.PageRoute{
