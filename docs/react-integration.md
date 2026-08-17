@@ -93,6 +93,6 @@ If you want better browser caching in production, enable:
 srv.SetAssetOptimization(true)
 ```
 
-In this mode, BunGo serves compiled assets from `/_bungo/*.js` and injects `<script type="module" src="...">` tags instead of embedding the full bundle into every page response.
+In this mode, BunGo serves compiled assets from content-hashed `/_bungo/<view>.<hash>.js` URLs and injects `<script type="module" src="...">` tags instead of embedding the full bundle into every page response. Because the hash is derived from the compiled output, the URL changes whenever the bundle changes — browsers can cache each bundle for a year (`Cache-Control: immutable`) and still pick up new code immediately after a deploy.
 
 Next: [Security Layers](./security-layers.md).

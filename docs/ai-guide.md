@@ -62,8 +62,12 @@ required and no static files are served.
   func (s *Server) SetAssetOptimization(enabled bool)
 
     Toggles production-oriented view asset delivery (default false). When enabled,
-    templates reference `/_bungo/*.js` URLs instead of embedding full view bundles
-    inline, allowing browser caching and smaller HTML payloads.
+    templates reference content-hashed `/_bungo/<view>.<hash>.js` URLs instead of
+    embedding full view bundles inline. The hash is derived from the compiled
+    output, so the URL changes on every deploy that changes the bundle — engines
+    serve these with `Cache-Control: public, max-age=31536000, immutable` and the
+    hash busts stale browser caches. The URL is produced by
+    bungo.OptimizedAssetPath(view, compiledJS); never hardcode it.
 
   func (s *Server) AssetOptimizationEnabled() bool
 
@@ -272,7 +276,7 @@ Script injection: BunGo automatically injects <script> tags for:
   - The compiled JSX bundle:
       - default: inline <script type="module">...</script>
       - optimized mode (SetAssetOptimization(true)): external
-        <script type="module" src="/_bungo/<view>.js"></script>
+        <script type="module" src="/_bungo/<view>.<hash>.js"></script>
 
 Injection point: before the first </head> tag; if absent, before </body>; if neither
 exists, appended to the document. When a Layout is used, injection happens in the
@@ -381,7 +385,8 @@ What happens at request time:
   - The template (home.gohtml) is rendered. If a Layout is set, the template's
     {{define "content"}}...{{end}} block fills the layout's {{block "content" .}}.
   - The compiled View bundle and __BUNGO_DATA__ script are injected automatically
-    (inline by default, external /_bungo/*.js when optimization is enabled).
+    (inline by default, external content-hashed /_bungo/<view>.<hash>.js when
+    optimization is enabled).
 
 Template is always required. Layout is optional (can be set per-route or globally
 via SetDefaultLayout). View is optional — pages can be pure server-rendered HTML.

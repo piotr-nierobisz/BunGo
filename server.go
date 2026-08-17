@@ -1,6 +1,8 @@
 package bungo
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"path"
@@ -323,16 +325,16 @@ func (s *Server) ResolvePageTemplatePaths(route *PageRoute) (string, string) {
 // ResolvePageScriptAssets resolves inline/module script values for one page route render.
 // Inputs:
 // - route: page route whose optional view determines script asset injection values.
-// - compiledViews: map of compiled view source keyed by original route View value.
+// - compiledViews: map of compiled view source keyed by original route View value; also the hash input in optimized mode.
 // Outputs:
 // - string: inline JavaScript payload when asset optimization is disabled.
-// - string: module source URL when asset optimization is enabled.
+// - string: content-hashed module source URL when asset optimization is enabled.
 func (s *Server) ResolvePageScriptAssets(route *PageRoute, compiledViews map[string]string) (string, string) {
 	if route.View == "" {
 		return "", ""
 	}
 	if s.AssetOptimizationEnabled() {
-		return "", OptimizedAssetPath(route.View)
+		return "", OptimizedAssetPath(route.View, compiledViews[route.View])
 	}
 	return compiledViews[route.View], ""
 }
@@ -364,14 +366,21 @@ func (s *Server) pageViewPath(route *PageRoute) string {
 	return "views/" + route.View
 }
 
-// OptimizedAssetPath converts a route view path into the optimized `/_bungo/*.js` route.
+// OptimizedAssetPath converts a route view path and its compiled bundle into the
+// content-hashed `/_bungo/*.js` route. The hash segment changes whenever the
+// compiled output changes, so the injected URL busts browser caches on every
+// deploy while engines keep serving the bundles with immutable, year-long
+// Cache-Control headers. Being derived from content (not boot time), the path is
+// identical across instances of the same build.
 // Inputs:
 // - view: page route view path relative to `views/`.
+// - js: compiled JavaScript bundle for that view, hashed into the URL.
 // Outputs:
-// - string: optimized JavaScript asset route path.
-func OptimizedAssetPath(view string) string {
+// - string: optimized JavaScript asset route path, e.g. `/_bungo/dash.1a2b3c4d.js`.
+func OptimizedAssetPath(view string, js string) string {
 	withoutExt := strings.TrimSuffix(view, filepath.Ext(view))
 	normalized := strings.ReplaceAll(withoutExt, "\\", "/")
 	normalized = strings.TrimPrefix(normalized, "/")
-	return "/_bungo/" + normalized + ".js"
+	sum := sha256.Sum256([]byte(js))
+	return "/_bungo/" + normalized + "." + hex.EncodeToString(sum[:4]) + ".js"
 }

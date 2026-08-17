@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -253,14 +254,37 @@ _bungoRender(V);`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := bungo.OptimizedAssetPath("v.jsx")
+
+	// The injected src is the source of truth: fetch the page, extract the
+	// content-hashed URL, and confirm the engine serves exactly that path.
+	page := httptest.NewRecorder()
+	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("%d %s", page.Code, page.Body.String())
+	}
+	match := regexp.MustCompile(`src="(/_bungo/v\.[0-9a-f]{8}\.js)"`).FindStringSubmatch(page.Body.String())
+	if match == nil {
+		t.Fatalf("no content-hashed module src injected: %s", page.Body.String())
+	}
+
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, match[1], nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
 	if ct := rec.Header().Get("Content-Type"); ct == "" {
 		t.Fatal("missing content type")
+	}
+	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Fatalf("expected immutable Cache-Control, got %q", cc)
+	}
+
+	// The old hashless URL must not resolve — a stale reference should 404
+	// rather than silently pin an outdated bundle.
+	stale := httptest.NewRecorder()
+	h.ServeHTTP(stale, httptest.NewRequest(http.MethodGet, "/_bungo/v.js", nil))
+	if stale.Code != http.StatusNotFound {
+		t.Fatalf("hashless path: expected 404, got %d", stale.Code)
 	}
 }
 

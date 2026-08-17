@@ -76,7 +76,7 @@ func CompilePages(pages map[string]bungo.PageRoute, webDir string) (map[string]s
 			outputPath := strings.TrimSuffix(fileutil.NormalizeSlashPath(page.View), filepath.Ext(page.View)) + ".js"
 			if js, ok := outputByPath[outputPath]; ok {
 				compiledMap[page.View] = js
-				optimizedMap[bungo.OptimizedAssetPath(page.View)] = js
+				optimizedMap[bungo.OptimizedAssetPath(page.View, js)] = js
 			}
 		}
 	}

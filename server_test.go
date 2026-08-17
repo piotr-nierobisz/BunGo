@@ -3,6 +3,8 @@ package bungo
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/piotr-nierobisz/BunGo/internal/wsbridge"
@@ -24,17 +26,27 @@ func TestNewServer_missingLayoutsPanics(t *testing.T) {
 func TestOptimizedAssetPath(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		view string
-		want string
+		view       string
+		wantPrefix string
 	}{
-		{"dash.jsx", "/_bungo/dash.js"},
-		{`sub\page.tsx`, "/_bungo/sub/page.js"},
-		{"/abs.jsx", "/_bungo/abs.js"},
+		{"dash.jsx", "/_bungo/dash."},
+		{`sub\page.tsx`, "/_bungo/sub/page."},
+		{"/abs.jsx", "/_bungo/abs."},
 	}
+	hashRe := regexp.MustCompile(`\.[0-9a-f]{8}\.js$`)
 	for _, tt := range tests {
-		if got := OptimizedAssetPath(tt.view); got != tt.want {
-			t.Errorf("OptimizedAssetPath(%q) = %q; want %q", tt.view, got, tt.want)
+		got := OptimizedAssetPath(tt.view, "console.log(1)")
+		if !strings.HasPrefix(got, tt.wantPrefix) || !hashRe.MatchString(got) {
+			t.Errorf("OptimizedAssetPath(%q) = %q; want prefix %q and an 8-hex hash segment", tt.view, got, tt.wantPrefix)
 		}
+	}
+
+	same := OptimizedAssetPath("dash.jsx", "console.log(1)")
+	if same != OptimizedAssetPath("dash.jsx", "console.log(1)") {
+		t.Fatal("hash must be deterministic for identical content")
+	}
+	if same == OptimizedAssetPath("dash.jsx", "console.log(2)") {
+		t.Fatal("hash must change when the compiled content changes")
 	}
 }
 
@@ -73,8 +85,8 @@ func TestServer_ResolvePageScriptAssets(t *testing.T) {
 		t.Fatalf("inline: %q %q", inline, mod)
 	}
 	s.SetAssetOptimization(true)
-	inline, mod = s.ResolvePageScriptAssets(&PageRoute{View: "a.jsx"}, nil)
-	if inline != "" || mod != OptimizedAssetPath("a.jsx") {
+	inline, mod = s.ResolvePageScriptAssets(&PageRoute{View: "a.jsx"}, map[string]string{"a.jsx": "CODE"})
+	if inline != "" || mod != OptimizedAssetPath("a.jsx", "CODE") {
 		t.Fatalf("optimized: %q %q", inline, mod)
 	}
 	inline, mod = s.ResolvePageScriptAssets(&PageRoute{}, nil)
