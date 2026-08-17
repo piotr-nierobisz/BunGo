@@ -2,7 +2,7 @@
 
 BunGo ships a first-class WebSocket abstraction: you register a **WebSocket Route** exactly like a Page or API route, and BunGo owns the entire connection lifecycle—the upgrade handshake, keepalive pings, buffered writes, slow-consumer protection, and teardown. Your application only writes three callbacks and talks to a **hub**.
 
-WebSocket routes are served by the **HTTP** and **HTTPS** engines (`engine.NewHTTPEngine()` / `engine.NewHTTPSEngine(...)`). The serverless adapters (AWS Lambda, GCP) cannot hold long-lived connections and do not serve them.
+WebSocket routes are served by the **HTTP** and **HTTPS** engines (`engine.NewHTTPEngine()` / `engine.NewHTTPSEngine(...)`), and by any [custom engine](./deployment.md) built on top of their shared handler. Environments that cannot hold long-lived connections (e.g. serverless function platforms) cannot serve them.
 
 ## Registering a route
 

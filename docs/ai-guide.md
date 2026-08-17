@@ -133,11 +133,11 @@ required and no static files are served.
       SameSite SameSiteMode  // "", "Lax", "Strict", "None"
   }
 
-  bungo.Cookie is transport-neutral. Each Engine (HTTP, HTTPS, AWS Lambda, GCP)
-  registers its own cookie converter callback in its constructor:
+  bungo.Cookie is transport-neutral. Each engine registers its own cookie
+  converter callback in its constructor:
     - engine.NewHTTPEngine().SetCookieConverter(func(bungo.Cookie) *http.Cookie)
-    - engine_aws.NewLambdaEngine().SetCookieConverter(func(bungo.Cookie) string)
-  Passing nil restores the engine's default converter.
+  Passing nil restores the engine's default converter. Custom engines apply the
+  same pattern when serializing APIResponse.Cookies for their transport.
 
 --- SecurityLayer ---
 
@@ -176,7 +176,8 @@ required and no static files are served.
 
 ### Engines
 
-BunGo ships four engine adapters.
+BunGo ships two engine adapters (HTTP and HTTPS). Any other environment is
+served by a small user-written engine implementing the Engine interface.
 
   HTTP engine (standard net/http)
 
@@ -192,7 +193,7 @@ BunGo ships four engine adapters.
     do NOT pass through security layers.
 
     WebSocket routes: served by this engine (and the HTTPS engine, which reuses
-    its handler). The serverless engines do not serve them.
+    its handler). Serverless environments cannot hold them.
 
   HTTPS engine (standard net/http TLS)
 
@@ -205,30 +206,26 @@ BunGo ships four engine adapters.
     This engine reuses BunGo's HTTP route handling and starts with
     http.ListenAndServeTLS(address, certFile, keyFile, handler).
 
-  AWS Lambda engine
+  Custom engines
 
-    Import: github.com/piotr-nierobisz/BunGo/engine/aws
-    Package: engine_aws
+    Any type implementing bungo.Engine works as an engine:
 
-      awsEngine := engine_aws.NewLambdaEngine()
-      srv := bungo.NewServer(awsEngine, "./web")
-      srv.Serve(0)   // port is ignored; lambda.Start runs the Lambda runtime
+      type Engine interface {
+          Start(address string, srv *bungo.Server) error
+      }
 
-    Supports API Gateway HTTP API v2 and Lambda Function URL payloads. Serves
-    /static/... and StaticAlias URLs (base64-encoded); does not serve WebSockets.
+    srv.Serve(port) calls Engine.Start(":port", srv). The recommended pattern
+    is to call engine.NewHTTPEngine().CreateHandler(srv) inside Start — it
+    compiles all views and returns a standard http.Handler with pages, APIs,
+    WebSockets, security layers, and static files fully wired — then host that
+    handler however the target environment requires (custom http.Server,
+    middleware wrapping, serverless platforms that accept an http.Handler).
+    JSX view compilation is internal to the framework, so engines that bypass
+    CreateHandler entirely are only suitable for API-only or template-only
+    (no View) servers. See docs/deployment.md for full worked examples.
 
-  Google Cloud Functions engine
-
-    Import: github.com/piotr-nierobisz/BunGo/engine/gcp
-    Package: engine_gcp
-
-      gcpEngine := engine_gcp.NewGCPEngine("MyFunction")
-      srv := bungo.NewServer(gcpEngine, "./web")
-      srv.Serve(8080)   // port IS used for the GCP Functions Framework
-
-    The functionName parameter must match the Cloud Functions console entry point.
-
-Both the AWS and GCP engines are separate Go modules with their own go.mod.
+Dedicated AWS Lambda and Google Cloud Functions engine modules were removed in
+v0.5.0; write a small custom engine (see above) for those platforms instead.
 
 
 ### Templates and layouts

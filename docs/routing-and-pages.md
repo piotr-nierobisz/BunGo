@@ -80,7 +80,7 @@ Failed security layers on page or API routes return **HTTP 401 Unauthorized**; s
 
 ### Setting cookies from API handlers
 
-API handlers can attach `Set-Cookie` headers to the response by appending `bungo.Cookie` values to `APIResponse.Cookies`. Each cookie is engine-agnostic: the active engine (HTTP, HTTPS, AWS Lambda, …) serializes it into the right transport format using a converter it registered at construction time.
+API handlers can attach `Set-Cookie` headers to the response by appending `bungo.Cookie` values to `APIResponse.Cookies`. Each cookie is engine-agnostic: the active engine (HTTP, HTTPS, or a [custom engine](./deployment.md)) serializes it into the right transport format using a converter it registered at construction time.
 
 ```go
 import "time"
@@ -133,15 +133,9 @@ httpEngine.SetCookieConverter(func(c bungo.Cookie) *http.Cookie {
     hc.Secure = true // running behind a TLS proxy that strips the flag
     return hc
 })
-
-// AWS Lambda engine — converter returns a raw Set-Cookie header string
-awsEngine := engine_aws.NewLambdaEngine()
-awsEngine.SetCookieConverter(func(c bungo.Cookie) string {
-    return engine_aws.DefaultLambdaCookieConverter(c)
-})
 ```
 
-Passing `nil` to `SetCookieConverter` restores the engine's default.
+Passing `nil` to `SetCookieConverter` restores the engine's default. [Custom engines](./deployment.md) should follow the same pattern: keep `bungo.Cookie` transport-neutral and serialize it at the engine boundary.
 
 ### Path parameters and query strings
 
@@ -165,7 +159,7 @@ srv.Api(bungo.ApiRoute{
 
 ## The `bungo.Request` Object
 
-Every Page or API route handler (and Security Layer) receives a `*bungo.Request` object. This struct normalizes incoming data across different engines (like standard HTTP vs AWS Lambda) into a unified, predictable payload:
+Every Page or API route handler (and Security Layer) receives a `*bungo.Request` object. This struct normalizes incoming data across different engines into a unified, predictable payload:
 
 - **`Context`**: (`context.Context`) The request context from the underlying environment. You can use it to monitor `req.Context.Done()` to cancel expensive downstream operations or database queries if a user navigates away or drops the connection.
 - **`Headers`**: (`map[string]string`) The HTTP headers provided by the client. For simplicity, BunGo flattens header values by taking the first value associated with each key.
@@ -186,7 +180,7 @@ When you use **`engine.NewHTTPEngine()`** with a non-empty `webDir`, BunGo looks
 - **Optional:** If `static/` is missing, nothing is mounted—no error. There is **no** static mount when `webDir` is `""` (API-only servers).
 - **Security layers:** Static requests are handled by `net/http`’s `FileServer` on `/static/` and **do not** run BunGo **Security** layers. Treat everything under `static/` as **public**. Keep secrets and user-specific files out of this tree; use authenticated API or page handlers instead.
 - **What not to put here:** Compiled React view bundles are produced from `web/views/` and injected into HTML by BunGo—you do not copy or hand-link those as separate files under `static/`.
-- **Other engines:** The automatic `/static/` mount and static aliases are implemented in the **HTTP/HTTPS** and **AWS Lambda** engines. The **GCP** adapter routes pages and `/api/...` only; for CDN-style deployments, host long-lived assets on object storage or a CDN and use full URLs or a path your gateway maps to that bucket.
+- **Other engines:** The automatic `/static/` mount and static aliases are implemented in the **HTTP/HTTPS** engines, so any [custom engine](./deployment.md) built on their shared handler inherits them. For CDN-style deployments, host long-lived assets on object storage or a CDN and use full URLs or a path your gateway maps to that bucket.
 
 ### Root URL aliases (`srv.StaticAlias`)
 
