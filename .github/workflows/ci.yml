@@ -34,6 +34,8 @@ jobs:
         uses: dominikh/staticcheck-action@v1
         with:
           install-go: false
+          # 2026.2 and later require Go 1.26; bump together with go-version.
+          version: '2026.1'
 
       - name: Test
         run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
