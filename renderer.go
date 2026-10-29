@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"html/template"
-	"os"
 	"path"
 	"strings"
+
+	"github.com/piotr-nierobisz/BunGo/internal/devreload"
 )
 
 // buildScriptInjection builds template script injection markup and execution payload data.
@@ -28,7 +29,7 @@ func buildScriptInjection(data map[string]any, inlineJS string, moduleSrc string
 	if moduleSrc != "" {
 		b.WriteString("\n<script type=\"module\" src=\"{{.BunGoModuleSrc}}\"></script>\n")
 	}
-	if isDevModeEnabled() {
+	if devreload.Enabled() {
 		b.WriteString("\n<script>{{.BunGoDevClientJS}}</script>\n")
 	}
 	payload = make(map[string]any)
@@ -45,25 +46,23 @@ func buildScriptInjection(data map[string]any, inlineJS string, moduleSrc string
 	if moduleSrc != "" {
 		payload["BunGoModuleSrc"] = template.URL(moduleSrc)
 	}
-	if isDevModeEnabled() {
+	if devreload.Enabled() {
 		payload["BunGoDevClientJS"] = template.JS(buildDevClientScript())
 	}
 	return b.String(), payload
 }
 
-// isDevModeEnabled reports whether BunGo dev mode is enabled for live-reload injection.
-// Inputs:
-// - none
-// Outputs:
-// - bool: true when BUNGO_DEV_ENABLED is set to "1"; otherwise false.
-func isDevModeEnabled() bool {
-	return os.Getenv("BUNGO_DEV_ENABLED") == "1"
-}
-
-// DevWebSocketPort is the fixed port the bungo CLI listens on for live reload; must match injected client.
+// DevWebSocketPort is the port of the separate live-reload server that
+// `bungo dev` ran before v0.5.3.
+//
+// Deprecated: live reload now connects to the app's own origin at /__bungo,
+// so no extra port is used. The constant is kept only for compatibility.
 const DevWebSocketPort = 35729
 
 // buildDevClientScript returns the live-reload browser client script used in dev mode.
+// The client connects to the page's own origin (scheme, host and port), where
+// engines mount devreload.Handler, so HTTPS pages get a wss:// endpoint served
+// with the app's own certificate.
 // Inputs:
 // - none
 // Outputs:
@@ -77,7 +76,7 @@ func buildDevClientScript() string {
 
   function endpoint() {
     var protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    return protocol + "://" + window.location.hostname + ":35729/__bungo";
+    return protocol + "://" + window.location.host + "` + devreload.Path + `";
   }
 
   function scheduleReconnect() {

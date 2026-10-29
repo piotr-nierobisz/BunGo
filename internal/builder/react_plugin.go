@@ -85,6 +85,33 @@ export const jsxs = jsx;
 				}, nil
 			})
 
+		// react/jsx-dev-runtime: CDN modules built in development mode import jsxDEV from it.
+		build.OnResolve(api.OnResolveOptions{Filter: `^react/jsx-dev-runtime$`},
+			func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+				return api.OnResolveResult{
+					Path:      "react/jsx-dev-runtime",
+					Namespace: "react-jsx-dev-ns",
+				}, nil
+			})
+
+		build.OnLoad(api.OnLoadOptions{Filter: `^react/jsx-dev-runtime$`, Namespace: "react-jsx-dev-ns"},
+			func(args api.OnLoadArgs) (api.OnLoadResult, error) {
+				contents := `import { Fragment, jsx } from "react/jsx-runtime";
+
+export { Fragment };
+
+// jsxDEV(type, props, key, isStaticChildren, source, self): the development-only
+// arguments are ignored because the embedded runtime is the production build.
+export function jsxDEV(type, props, key) {
+  return jsx(type, props, key);
+}
+`
+				return api.OnLoadResult{
+					Contents: &contents,
+					Loader:   api.LoaderJS,
+				}, nil
+			})
+
 		// bungo/render: provides _bungoRender(Component, elementId?) so views don't need createRoot boilerplate.
 		// elementId defaults to "root" (React convention) when omitted.
 		build.OnResolve(api.OnResolveOptions{Filter: `^bungo/render$`},

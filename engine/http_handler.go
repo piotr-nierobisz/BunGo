@@ -9,6 +9,7 @@ import (
 
 	bungo "github.com/piotr-nierobisz/BunGo"
 	"github.com/piotr-nierobisz/BunGo/internal/builder"
+	"github.com/piotr-nierobisz/BunGo/internal/devreload"
 	"github.com/piotr-nierobisz/BunGo/internal/wsbridge"
 )
 
@@ -29,6 +30,13 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 
+	// Under `bungo dev`, pages connect back here for live reload. Living on the
+	// app's own origin lets it use the app's scheme and certificate (wss:// for
+	// HTTPS), LAN address, proxy or tunnel without a separate port.
+	if devreload.Enabled() {
+		mux.HandleFunc(devreload.Path, devreload.Handler)
+	}
+
 	// Serve static assets from memory-first storage when static directory exists.
 	if srv.AssetStorage().Exists("static") {
 		mux.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +55,7 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 	if srv.AssetOptimizationEnabled() {
 		mux.HandleFunc("/_bungo/", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodGet {
-				http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+				writeMethodNotAllowed(w, http.MethodGet)
 				return
 			}
 			if js, ok := e.optimizedAssets[r.URL.Path]; ok {
@@ -106,36 +114,35 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 		mux.HandleFunc(path, e.createWebSocketHandler(srv, &routeRef, hub))
 	}
 
-	// Register APIs, remembering which methods exist per full path so the /api/
-	// fallback below can answer 405 with an Allow header instead of a 404.
+	// Register APIs. First collect the methods registered per full path, so every
+	// 405 for that path (a route's own method guard or the /api/ fallback below)
+	// carries the same Allow header.
 	apiMethods := make(map[string][]string)
 	for _, apiRoute := range srv.APIs {
-		routeRef := apiRoute
-		routePath := routeRef.Path
-		if !strings.HasPrefix(routePath, "/") {
-			routePath = "/" + routePath
-		}
-		fullPath := "/api/" + routeRef.Version + routePath
-
-		method := strings.ToUpper(routeRef.Method)
-		pattern := method + " " + fullPath
-
-		mux.HandleFunc(pattern, e.createAPIHandler(srv, &routeRef))
-		apiMethods[fullPath] = append(apiMethods[fullPath], method)
+		fullPath := apiFullPath(&apiRoute)
+		apiMethods[fullPath] = append(apiMethods[fullPath], strings.ToUpper(apiRoute.Method))
 	}
 
-	// Sort once at registration: request handlers must only read this map, so
-	// concurrent requests never mutate a shared slice.
-	for _, methods := range apiMethods {
+	// Join once at registration: request handlers only read these strings, so
+	// concurrent requests never touch a shared slice.
+	apiAllow := make(map[string]string, len(apiMethods))
+	for fullPath, methods := range apiMethods {
 		sort.Strings(methods)
+		apiAllow[fullPath] = strings.Join(methods, ", ")
+	}
+
+	for _, apiRoute := range srv.APIs {
+		routeRef := apiRoute
+		fullPath := apiFullPath(&routeRef)
+		pattern := strings.ToUpper(routeRef.Method) + " " + fullPath
+		mux.HandleFunc(pattern, e.createAPIHandler(srv, &routeRef, apiAllow[fullPath]))
 	}
 
 	// Unmatched /api/ paths must never fall through to the "/" page subtree:
 	// answer 405 when the path exists under other methods, else a JSON 404.
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		if methods, ok := apiMethods[r.URL.Path]; ok {
-			w.Header().Set("Allow", strings.Join(methods, ", "))
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		if allow, ok := apiAllow[r.URL.Path]; ok {
+			writeMethodNotAllowed(w, allow)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -167,7 +174,7 @@ func (e *HTTPEngine) CreateHandler(srv *bungo.Server) (http.Handler, error) {
 // - none
 func serveStaticFile(w http.ResponseWriter, r *http.Request, srv *bungo.Server, staticPath string) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeMethodNotAllowed(w, http.MethodGet)
 		return
 	}
 
@@ -186,4 +193,28 @@ func serveStaticFile(w http.ResponseWriter, r *http.Request, srv *bungo.Server, 
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(content)
+}
+
+// apiFullPath returns the mux path an API route is served at: /api/<version>/<path>.
+// Inputs:
+// - route: API route whose Version and Path (leading "/" optional) form the URL.
+// Outputs:
+// - string: absolute request path, for example "/api/v1/users".
+func apiFullPath(route *bungo.ApiRoute) string {
+	routePath := route.Path
+	if !strings.HasPrefix(routePath, "/") {
+		routePath = "/" + routePath
+	}
+	return "/api/" + route.Version + routePath
+}
+
+// writeMethodNotAllowed answers 405 with the Allow header RFC 9110 requires on every 405 response.
+// Inputs:
+// - w: response writer receiving the rejection.
+// - allow: comma-separated methods the target resource supports, for example "GET" or "DELETE, GET".
+// Outputs:
+// - none
+func writeMethodNotAllowed(w http.ResponseWriter, allow string) {
+	w.Header().Set("Allow", allow)
+	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 }

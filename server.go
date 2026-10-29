@@ -211,7 +211,8 @@ func (s *Server) Api(route ApiRoute) {
 // The alias URL must carry the same file extension as the target static file, so a
 // URL never misrepresents the content type it serves (e.g. "/robots.txt" may only
 // map onto a ".txt" file). Registration is fail-fast: the target file must already
-// exist in the static directory.
+// exist in the static directory, and a target that escapes it (for example
+// "../layouts/page.gohtml") is rejected.
 // Inputs:
 // - urlPath: absolute URL path to publish, for example "/robots.txt" or "/sitemap.xml".
 // - staticPath: target file path relative to webDir/static, for example "robots.txt" or "seo/sitemap.xml".
@@ -227,7 +228,10 @@ func (s *Server) StaticAlias(urlPath string, staticPath string) {
 		}
 	}
 
-	cleanStatic := strings.TrimPrefix(strings.TrimSpace(staticPath), "/")
+	cleanStatic, ok := cleanStaticPath(staticPath)
+	if !ok {
+		panic(fmt.Sprintf("BunGo Routing Error: StaticAlias file '%s' must be a file path inside the static directory.", staticPath))
+	}
 	urlExt := path.Ext(urlPath)
 	fileExt := path.Ext(cleanStatic)
 	if urlExt == "" {

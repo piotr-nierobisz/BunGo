@@ -1,6 +1,8 @@
 package bungo
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -214,6 +216,27 @@ func TestServer_StaticAlias(t *testing.T) {
 		defer expectPanic(t)
 		s.StaticAlias("/static/robots.txt", "robots.txt")
 	})
+
+	// layouts/home.gohtml exists in the web root and the extensions match, so only the
+	// static-dir containment check stands between these aliases and the template source.
+	for _, target := range []string{"../layouts/home.gohtml", `..\layouts\home.gohtml`, "seo/../../layouts/home.gohtml"} {
+		t.Run("target escaping static dir "+target, func(t *testing.T) {
+			msg := panicMessage(t, func() { s.StaticAlias("/home.gohtml", target) })
+			if !strings.Contains(msg, "inside the static directory") {
+				t.Fatalf("unexpected panic: %q", msg)
+			}
+			if _, registered := s.StaticAliases["/home.gohtml"]; registered {
+				t.Fatal("escaping alias was registered")
+			}
+		})
+	}
+
+	t.Run("backslash target normalized", func(t *testing.T) {
+		s.StaticAlias("/sitemap-win.xml", `seo\sitemap.xml`)
+		if got := s.StaticAliases["/sitemap-win.xml"]; got != "seo/sitemap.xml" {
+			t.Fatalf("alias target = %q, want slash-normalized seo/sitemap.xml", got)
+		}
+	})
 }
 
 func TestServer_WebSocket_registration(t *testing.T) {
@@ -293,4 +316,161 @@ func newTestWebTree(t *testing.T) string {
 		}
 	}
 	return dir
+}
+
+// panicMessage runs fn and returns its recovered panic message, failing the test when fn returns normally.
+func panicMessage(t *testing.T, fn func()) (msg string) {
+	t.Helper()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic")
+		}
+		msg = fmt.Sprint(r)
+	}()
+	fn()
+	return ""
+}
+
+// recordingEngine captures the arguments Serve hands to the engine and returns a canned error.
+type recordingEngine struct {
+	address string
+	srv     *Server
+	err     error
+}
+
+func (e *recordingEngine) Start(address string, srv *Server) error {
+	e.address = address
+	e.srv = srv
+	return e.err
+}
+
+func TestNewServer_startupValidationPanics(t *testing.T) {
+	t.Parallel()
+	missingRoot := filepath.Join(t.TempDir(), "absent")
+	noViews := t.TempDir()
+	mustMk(t, filepath.Join(noViews, "layouts"))
+
+	tests := []struct {
+		name string
+		dir  string
+		want string
+	}{
+		{"missing web dir", missingRoot, "Base web directory"},
+		{"missing views dir", noViews, "'views' subdirectory"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := panicMessage(t, func() { NewServer(nil, tt.dir) })
+			if !strings.Contains(msg, tt.want) || !strings.Contains(msg, tt.dir) {
+				t.Fatalf("panic %q should mention %q and the web dir %q", msg, tt.want, tt.dir)
+			}
+		})
+	}
+}
+
+func TestServer_Page_validatesReferencedFiles(t *testing.T) {
+	t.Parallel()
+	dir := newTestWebTree(t)
+	mustWrite(t, filepath.Join(dir, "views", "home.jsx"), []byte("export default function Home(){return null}"))
+	s := NewServer(&noopEngine{}, dir)
+
+	tests := []struct {
+		name  string
+		route PageRoute
+		want  string
+	}{
+		{"missing template file", PageRoute{Path: "/a", Template: "absent.gohtml"}, "Template file 'absent.gohtml'"},
+		{"missing layout file", PageRoute{Path: "/b", Template: "home.gohtml", Layout: "absent.gohtml"}, "Layout file 'absent.gohtml'"},
+		{"missing view file", PageRoute{Path: "/c", Template: "home.gohtml", View: "absent.jsx"}, "View file 'absent.jsx'"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := panicMessage(t, func() { s.Page(tt.route) })
+			if !strings.Contains(msg, tt.want) {
+				t.Fatalf("panic %q should name the missing file (%q)", msg, tt.want)
+			}
+			if _, registered := s.Pages[tt.route.Path]; registered {
+				t.Fatalf("route %q registered despite failed validation", tt.route.Path)
+			}
+		})
+	}
+
+	s.Page(PageRoute{Path: "/ok", Template: "home.gohtml", Layout: "base.gohtml", View: "home.jsx"})
+	if got, ok := s.Pages["/ok"]; !ok || got.Layout != "base.gohtml" || got.View != "home.jsx" {
+		t.Fatalf("valid route with layout and view not registered: %#v ok=%v", got, ok)
+	}
+}
+
+func TestServer_SetDefaultLayout_validation(t *testing.T) {
+	t.Parallel()
+	s := NewServer(&noopEngine{}, newTestWebTree(t))
+	s.SetDefaultLayout("base.gohtml")
+
+	msg := panicMessage(t, func() { s.SetDefaultLayout("absent.gohtml") })
+	if !strings.Contains(msg, "absent.gohtml") {
+		t.Fatalf("panic should name the missing layout: %q", msg)
+	}
+	if s.DefaultLayout != "base.gohtml" {
+		t.Fatalf("failed SetDefaultLayout must keep the previous default, got %q", s.DefaultLayout)
+	}
+
+	// Without a web directory there is nothing to validate against, so any name is accepted.
+	bare := NewServer(nil, "")
+	bare.SetDefaultLayout("shell.gohtml")
+	if bare.DefaultLayout != "shell.gohtml" {
+		t.Fatalf("DefaultLayout = %q", bare.DefaultLayout)
+	}
+}
+
+func TestServer_SetResponseHeaders(t *testing.T) {
+	t.Parallel()
+	s := NewServer(nil, "")
+	if len(s.ResponseHeaders()) != 0 {
+		t.Fatalf("new server should have no global headers: %#v", s.ResponseHeaders())
+	}
+
+	in := map[string]string{"X-Frame-Options": "DENY"}
+	s.SetResponseHeaders(in)
+	// The server keeps its own copy: later caller mutations must not leak into responses.
+	in["X-Frame-Options"] = "SAMEORIGIN"
+	in["X-Late"] = "1"
+	got := s.ResponseHeaders()
+	if len(got) != 1 || got["X-Frame-Options"] != "DENY" {
+		t.Fatalf("ResponseHeaders = %#v, want only the snapshot taken at SetResponseHeaders", got)
+	}
+
+	s.SetResponseHeaders(nil)
+	if len(s.ResponseHeaders()) != 0 {
+		t.Fatalf("nil should clear global headers: %#v", s.ResponseHeaders())
+	}
+}
+
+func TestServer_AssetStorage_readsWebDir(t *testing.T) {
+	t.Parallel()
+	s := NewServer(&noopEngine{}, newTestWebTree(t))
+	b, err := s.AssetStorage().ReadFile("layouts/home.gohtml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "{{.Title}}") {
+		t.Fatalf("unexpected template contents: %q", b)
+	}
+}
+
+func TestServer_Serve_delegatesToEngine(t *testing.T) {
+	t.Parallel()
+	errListen := errors.New("listen failed")
+	eng := &recordingEngine{err: errListen}
+	s := NewServer(eng, "")
+
+	if err := s.Serve(8080); !errors.Is(err, errListen) {
+		t.Fatalf("Serve must return the engine error, got %v", err)
+	}
+	if eng.address != ":8080" {
+		t.Fatalf("engine address = %q, want \":8080\"", eng.address)
+	}
+	if eng.srv != s {
+		t.Fatal("engine must receive the serving Server")
+	}
 }

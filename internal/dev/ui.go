@@ -146,16 +146,27 @@ func (m devModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		headerHeight := lipgloss.Height(m.header)
 		footerHeight := lipgloss.Height(renderFooter(m.spinner.View(), m.quitting, m.headerWidth))
 		verticalMarginHeight := headerHeight + footerHeight
+		// Terminals shorter than header+footer leave no room for logs; a
+		// negative height makes the viewport slice out of range and panic.
+		viewportHeight := max(0, msg.Height-verticalMarginHeight)
 
 		if !m.ready {
-			m.viewport = viewport.New(msg.Width, msg.Height-verticalMarginHeight)
+			m.viewport = viewport.New(msg.Width, viewportHeight)
 			m.viewport.YPosition = headerHeight
 			// Initialize with logs if there are already any before window size is known
 			m.viewport.SetContent(strings.Join(m.logs, "\n"))
 			m.ready = true
 		} else {
+			// Keep following new logs across resizes, and never leave the
+			// offset past the end (blank rows after the terminal grows).
+			followBottom := m.viewport.AtBottom()
 			m.viewport.Width = msg.Width
-			m.viewport.Height = msg.Height - verticalMarginHeight
+			m.viewport.Height = viewportHeight
+			if followBottom {
+				m.viewport.GotoBottom()
+			} else {
+				m.viewport.SetYOffset(m.viewport.YOffset)
+			}
 		}
 
 	case tea.KeyMsg:
@@ -236,6 +247,11 @@ func (w *uiWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+// programOptions configures the Bubble Tea program started by RunUI: the
+// alternate screen for a full-terminal UI and mouse wheel scrolling of logs.
+// Tests replace it to run the UI headless.
+var programOptions = []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
+
 // RunUI starts the Bubble Tea dev UI and runs the underlying dev process loop.
 // Inputs:
 // - ctx: cancellation context propagated to the underlying dev runner.
@@ -246,19 +262,19 @@ func (w *uiWriter) Write(b []byte) (int, error) {
 // Outputs:
 // - error: non-nil when UI runtime or background dev runner fails.
 func RunUI(ctx context.Context, stop context.CancelFunc, root, entry, cliVersion string) error {
-	uiW := &uiWriter{}
-
 	errCh := make(chan error, 1)
 
-	// Use alternate screen to render full terminal
-	p := tea.NewProgram(newDevModel(root, entry, cliVersion), tea.WithAltScreen(), tea.WithMouseCellMotion())
-	uiW.p = p
+	p := tea.NewProgram(newDevModel(root, entry, cliVersion), programOptions...)
+	// Separate line buffers: stdout and stderr are copied by different
+	// goroutines, and a shared buffer would splice their partial lines together.
+	outW := &uiWriter{p: p}
+	errW := &uiWriter{p: p}
 
 	go func() {
 		errCh <- Run(ctx, root, &Options{
 			RunTarget: entry,
-			Stdout:    uiW,
-			Stderr:    uiW,
+			Stdout:    outW,
+			Stderr:    errW,
 		})
 		p.Send(devDoneMsg{})
 	}()

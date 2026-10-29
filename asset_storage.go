@@ -123,17 +123,30 @@ func (s *AssetStorage) ReadFile(relativePath string) ([]byte, error) {
 }
 
 // ReadStaticFile reads a static asset by URL-relative path and enforces path traversal safety.
+// The request path is cleaned on its own before it is joined under `static/`, so a
+// `..` segment (slash or backslash separated) can never climb out of the static
+// directory into layouts/, views/, or anything else in the web root.
 // Inputs:
 // - requestPath: URL-relative path under `/static/`, for example `css/app.css`.
 // Outputs:
 // - []byte: resolved static file bytes from memory-first, disk-fallback storage.
-// - error: non-nil when requestPath is invalid or the static file is not found.
+// - error: os.ErrNotExist when requestPath escapes the static directory, otherwise any read error.
 func (s *AssetStorage) ReadStaticFile(requestPath string) ([]byte, error) {
-	cleanPath, ok := fileutil.CleanRelativeSlashPath(path.Join("static", requestPath))
+	cleanPath, ok := cleanStaticPath(requestPath)
 	if !ok {
 		return nil, os.ErrNotExist
 	}
-	return s.ReadFile(cleanPath)
+	return s.ReadFile(path.Join("static", cleanPath))
+}
+
+// cleanStaticPath normalizes a path relative to the static directory and rejects any path that escapes it.
+// Inputs:
+// - staticPath: path relative to webDir/static; backslashes and one leading "/" or "./" are tolerated.
+// Outputs:
+// - string: cleaned slash-style path that stays inside the static directory.
+// - bool: false when the path is empty or resolves outside the static directory.
+func cleanStaticPath(staticPath string) (string, bool) {
+	return fileutil.CleanRelativeSlashPath(staticPath)
 }
 
 // PrepareWebDirForBuild returns a disk directory suitable for esbuild and a cleanup callback.

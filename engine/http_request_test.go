@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -51,6 +52,24 @@ func TestHTTPEngine_translateRequest_nilBody(t *testing.T) {
 	}
 	if len(breq.Body) != 0 {
 		t.Fatal(breq.Body)
+	}
+}
+
+var errBodyRead = errors.New("client went away mid-upload")
+
+// failingBody is a request body whose Read always fails, like a client dropping mid-upload.
+type failingBody struct{}
+
+func (failingBody) Read([]byte) (int, error) { return 0, errBodyRead }
+func (failingBody) Close() error             { return nil }
+
+func TestHTTPEngine_translateRequest_bodyReadError(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest(http.MethodPost, "/p", nil)
+	req.Body = failingBody{}
+	breq, err := NewHTTPEngine().translateRequest(req)
+	if !errors.Is(err, errBodyRead) || breq != nil {
+		t.Fatalf("got request=%v err=%v; want nil request and the body read error", breq, err)
 	}
 }
 
@@ -285,6 +304,12 @@ _bungoRender(V);`)
 	h.ServeHTTP(stale, httptest.NewRequest(http.MethodGet, "/_bungo/v.js", nil))
 	if stale.Code != http.StatusNotFound {
 		t.Fatalf("hashless path: expected 404, got %d", stale.Code)
+	}
+
+	post := httptest.NewRecorder()
+	h.ServeHTTP(post, httptest.NewRequest(http.MethodPost, match[1], nil))
+	if post.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST to a bundle: expected 405, got %d", post.Code)
 	}
 }
 

@@ -20,6 +20,10 @@ import (
 
 const remoteHTTPNamespace = "bungo-remote-http"
 
+// remoteCacheFormatVersion identifies the on-disk cache entry layout. Entries written with any
+// other version (including the unversioned layout that stored esbuild's numeric loader) are misses.
+const remoteCacheFormatVersion = 2
+
 var (
 	remoteModuleCache sync.Map
 	remoteHTTPClient  = &http.Client{Timeout: 15 * time.Second}
@@ -28,6 +32,15 @@ var (
 type remoteModule struct {
 	contents string
 	loader   api.Loader
+	// url is the final URL the module was served from after redirects. Relative imports inside
+	// the module resolve against it, exactly as a browser would.
+	url string
+}
+
+// remoteModuleData is attached to loaded remote modules; esbuild hands it to the OnResolve
+// callbacks of that module's imports.
+type remoteModuleData struct {
+	baseURL string
 }
 
 // RemoteImportPlugin enables URL imports inside JSX/JS modules.
@@ -56,9 +69,15 @@ var RemoteImportPlugin = api.Plugin{
 		// Resolve relative and absolute path imports that originate from a remote module.
 		build.OnResolve(api.OnResolveOptions{Filter: `^(\.{1,2}/|/)`, Namespace: remoteHTTPNamespace},
 			func(args api.OnResolveArgs) (api.OnResolveResult, error) {
-				baseURL, err := url.Parse(args.Importer)
+				// Prefer the URL the importer was actually served from: after a redirect
+				// (e.g. https://unpkg.com/pkg -> /pkg@1.2.3/index.js) the requested URL is the wrong base.
+				base := args.Importer
+				if data, ok := args.PluginData.(remoteModuleData); ok {
+					base = data.baseURL
+				}
+				baseURL, err := url.Parse(base)
 				if err != nil {
-					return api.OnResolveResult{}, fmt.Errorf("invalid importer URL %q: %w", args.Importer, err)
+					return api.OnResolveResult{}, fmt.Errorf("invalid importer URL %q: %w", base, err)
 				}
 
 				refURL, err := url.Parse(args.Path)
@@ -85,15 +104,48 @@ var RemoteImportPlugin = api.Plugin{
 				}
 
 				return api.OnLoadResult{
-					Contents: &module.contents,
-					Loader:   module.loader,
+					Contents:   &module.contents,
+					Loader:     module.loader,
+					PluginData: remoteModuleData{baseURL: module.url},
 				}, nil
 			})
 	},
 }
 
+// remoteModuleMeta is the JSON metadata stored next to each cached module body.
 type remoteModuleMeta struct {
-	Loader api.Loader `json:"loader"`
+	Version int `json:"version"`
+	// Loader is stored by name: esbuild's api.Loader values are positional and shift between releases.
+	Loader string `json:"loader"`
+	// URL is the final (post-redirect) URL, used as the base for the module's relative imports.
+	URL string `json:"url"`
+	// BodySHA256 ties the metadata to one exact body, so a body and metadata written by
+	// different fetches are never combined into a cache hit.
+	BodySHA256 string `json:"bodySha256"`
+}
+
+// remoteLoaderNames lists every loader inferRemoteLoader can produce, keyed by its cache name.
+var remoteLoaderNames = map[string]api.Loader{
+	"js":   api.LoaderJS,
+	"jsx":  api.LoaderJSX,
+	"ts":   api.LoaderTS,
+	"tsx":  api.LoaderTSX,
+	"json": api.LoaderJSON,
+	"css":  api.LoaderCSS,
+}
+
+// remoteLoaderName returns the stable cache name of a loader, or "" when it has none.
+// Inputs:
+// - loader: esbuild loader selected for a remote module.
+// Outputs:
+// - string: name stored in cache metadata; unknown loaders yield "" and therefore never hit.
+func remoteLoaderName(loader api.Loader) string {
+	for name, candidate := range remoteLoaderNames {
+		if candidate == loader {
+			return name
+		}
+	}
+	return ""
 }
 
 // getCacheDir returns the remote module cache directory path and ensures it exists.
@@ -128,12 +180,93 @@ func getCacheFilePaths(moduleURL string) (string, string, error) {
 	return filepath.Join(dir, hashStr+".body"), filepath.Join(dir, hashStr+".meta.json"), nil
 }
 
+// readCachedModule loads one disk cache entry, rejecting anything not written by this format.
+// Inputs:
+// - bodyPath: cache file path of the module body.
+// - metaPath: cache file path of the module metadata JSON.
+// Outputs:
+// - remoteModule: cached module contents, loader, and final URL.
+// - bool: true only for a complete, current-format entry whose body matches its metadata.
+func readCachedModule(bodyPath string, metaPath string) (remoteModule, bool) {
+	metaData, err := os.ReadFile(metaPath)
+	if err != nil {
+		return remoteModule{}, false
+	}
+	var meta remoteModuleMeta
+	if json.Unmarshal(metaData, &meta) != nil || meta.Version != remoteCacheFormatVersion || meta.URL == "" {
+		return remoteModule{}, false
+	}
+	loader, ok := remoteLoaderNames[meta.Loader]
+	if !ok {
+		return remoteModule{}, false
+	}
+	body, err := os.ReadFile(bodyPath)
+	if err != nil {
+		return remoteModule{}, false
+	}
+	if sum := sha256.Sum256(body); hex.EncodeToString(sum[:]) != meta.BodySHA256 {
+		return remoteModule{}, false
+	}
+	return remoteModule{contents: string(body), loader: loader, url: meta.URL}, true
+}
+
+// writeCachedModule stores one module in the disk cache.
+// Inputs:
+// - bodyPath: cache file path of the module body.
+// - metaPath: cache file path of the module metadata JSON.
+// - module: fetched module to persist.
+// Outputs:
+// - error: non-nil when either file could not be written.
+func writeCachedModule(bodyPath string, metaPath string, module remoteModule) error {
+	sum := sha256.Sum256([]byte(module.contents))
+	// Marshal cannot fail: the metadata holds only string and int fields.
+	metaData, _ := json.Marshal(remoteModuleMeta{
+		Version:    remoteCacheFormatVersion,
+		Loader:     remoteLoaderName(module.loader),
+		URL:        module.url,
+		BodySHA256: hex.EncodeToString(sum[:]),
+	})
+	// The body goes first: until the matching metadata lands, readers treat the entry as a miss.
+	if err := writeFileAtomic(bodyPath, []byte(module.contents)); err != nil {
+		return err
+	}
+	return writeFileAtomic(metaPath, metaData)
+}
+
+// writeFileAtomic replaces path with data via a temporary file and rename, so concurrent
+// readers (including other bungo processes) see either the old or the new file, never a partial one.
+// Inputs:
+// - path: destination file path.
+// - data: complete file contents.
+// Outputs:
+// - error: non-nil when the temporary file cannot be written or renamed into place.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	_, err = tmp.Write(data)
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Chmod(tmp.Name(), 0644)
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp.Name())
+	}
+	return err
+}
+
 // loadRemoteModule loads a remote module from memory cache, disk cache, or HTTP fetch.
 // Inputs:
 // - moduleURL: absolute remote module URL to retrieve and classify.
 // Outputs:
-// - remoteModule: module payload containing source contents and inferred esbuild loader.
-// - error: non-nil when URL fetch, cache decode, or response read fails.
+// - remoteModule: module payload containing source contents, inferred esbuild loader, and final URL.
+// - error: non-nil when URL fetch or response read fails.
 func loadRemoteModule(moduleURL string) (remoteModule, error) {
 	if cached, ok := remoteModuleCache.Load(moduleURL); ok {
 		return cached.(remoteModule), nil
@@ -141,18 +274,9 @@ func loadRemoteModule(moduleURL string) (remoteModule, error) {
 
 	bodyPath, metaPath, cacheErr := getCacheFilePaths(moduleURL)
 	if cacheErr == nil {
-		if bodyData, bErr := os.ReadFile(bodyPath); bErr == nil {
-			if metaData, mErr := os.ReadFile(metaPath); mErr == nil {
-				var meta remoteModuleMeta
-				if err := json.Unmarshal(metaData, &meta); err == nil {
-					module := remoteModule{
-						contents: string(bodyData),
-						loader:   meta.Loader,
-					}
-					remoteModuleCache.Store(moduleURL, module)
-					return module, nil
-				}
-			}
+		if module, ok := readCachedModule(bodyPath, metaPath); ok {
+			remoteModuleCache.Store(moduleURL, module)
+			return module, nil
 		}
 	}
 
@@ -177,19 +301,21 @@ func loadRemoteModule(moduleURL string) (remoteModule, error) {
 		return remoteModule{}, fmt.Errorf("reading %q failed: %w", moduleURL, err)
 	}
 
-	inferredLoader := inferRemoteLoader(moduleURL, resp.Header.Get("Content-Type"))
-
-	if cacheErr == nil {
-		meta := remoteModuleMeta{Loader: inferredLoader}
-		if metaData, err := json.Marshal(meta); err == nil {
-			os.WriteFile(bodyPath, body, 0644)
-			os.WriteFile(metaPath, metaData, 0644)
-		}
+	// http.Transport records the last request of a redirect chain on the response; custom
+	// transports may not, in which case the requested URL is the best available base.
+	finalURL := moduleURL
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL.String()
 	}
 
 	module := remoteModule{
 		contents: string(body),
-		loader:   inferredLoader,
+		loader:   inferRemoteLoader(finalURL, resp.Header.Get("Content-Type")),
+		url:      finalURL,
+	}
+	if cacheErr == nil {
+		// A failed cache write only costs a refetch next time; the module itself is fine.
+		_ = writeCachedModule(bodyPath, metaPath, module)
 	}
 	remoteModuleCache.Store(moduleURL, module)
 	return module, nil
@@ -229,68 +355,4 @@ func inferRemoteLoader(moduleURL string, contentType string) api.Loader {
 	default:
 		return api.LoaderJS
 	}
-}
-
-// resolveEmbeddedReactFromRemoteURL maps remote React-family URLs to embedded runtime modules.
-// Inputs:
-// - moduleURL: remote URL candidate that may represent react, react-dom, or jsx-runtime.
-// Outputs:
-// - api.OnResolveResult: resolve result that points to BunGo embedded React namespaces.
-// - bool: true when moduleURL maps to an embedded React alias; otherwise false.
-func resolveEmbeddedReactFromRemoteURL(moduleURL string) (api.OnResolveResult, bool) {
-	module := classifyRemoteReactModule(moduleURL)
-	switch module {
-	case "react":
-		return api.OnResolveResult{
-			Path:      "react",
-			Namespace: "react-ns",
-		}, true
-	case "react/jsx-runtime":
-		return api.OnResolveResult{
-			Path:      "react/jsx-runtime",
-			Namespace: "react-jsx-ns",
-		}, true
-	case "react-dom":
-		return api.OnResolveResult{
-			Path:      "react-dom",
-			Namespace: "react-dom-ns",
-		}, true
-	default:
-		return api.OnResolveResult{}, false
-	}
-}
-
-// classifyRemoteReactModule classifies a remote URL as react, react-dom, jsx-runtime, or non-react.
-// Inputs:
-// - moduleURL: remote URL inspected for React package path markers.
-// Outputs:
-// - string: module classification key (`react`, `react-dom`, `react/jsx-runtime`, or empty).
-func classifyRemoteReactModule(moduleURL string) string {
-	parsed, err := url.Parse(moduleURL)
-	if err != nil {
-		return ""
-	}
-
-	pathLower := strings.Trim(strings.ToLower(parsed.Path), "/")
-	if pathLower == "" {
-		return ""
-	}
-
-	segments := strings.Split(pathLower, "/")
-	for _, segment := range segments {
-		if segment == "react-dom" || strings.HasPrefix(segment, "react-dom@") {
-			return "react-dom"
-		}
-	}
-
-	for _, segment := range segments {
-		if segment == "react" || strings.HasPrefix(segment, "react@") {
-			if strings.Contains(pathLower, "jsx-runtime") {
-				return "react/jsx-runtime"
-			}
-			return "react"
-		}
-	}
-
-	return ""
 }

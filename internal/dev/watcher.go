@@ -65,7 +65,7 @@ func newProjectWatcher(root string) (*projectWatcher, error) {
 		done:    make(chan struct{}),
 	}
 
-	if err := pw.watchDirTree(root); err != nil {
+	if _, err := pw.watchDirTree(root); err != nil {
 		_ = fsw.Close()
 		return nil, err
 	}
@@ -140,19 +140,33 @@ func (w *projectWatcher) handleEvent(event fsnotify.Event) {
 		return
 	}
 
-	// Keep recursive watches up to date for newly created directories.
+	// Keep recursive watches up to date for newly created directories. A
+	// directory created or moved in with files already inside produces no
+	// events for those files, so its contents decide whether to reload.
 	if event.Op&fsnotify.Create != 0 {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-			if err := w.watchDirTree(event.Name); err != nil {
+			hasSources, err := w.watchDirTree(event.Name)
+			if err != nil {
 				w.pushError(err)
 			}
+			if hasSources {
+				w.signalChange()
+			}
+			return
 		}
 	}
 
-	if !isRelevantChange(event) {
-		return
+	if isRelevantChange(event) {
+		w.signalChange()
 	}
+}
 
+// signalChange queues a reload signal without blocking; one pending signal is enough.
+// Inputs:
+// - none
+// Outputs:
+// - none
+func (w *projectWatcher) signalChange() {
 	select {
 	case w.changes <- struct{}{}:
 	default:
@@ -163,9 +177,11 @@ func (w *projectWatcher) handleEvent(event fsnotify.Event) {
 // Inputs:
 // - root: directory subtree root to walk and register with fsnotify.
 // Outputs:
+// - bool: true when a file with a watched extension was found in the watched subtree.
 // - error: non-nil when directory traversal or watch registration fails.
-func (w *projectWatcher) watchDirTree(root string) error {
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+func (w *projectWatcher) watchDirTree(root string) (bool, error) {
+	hasSources := false
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -180,22 +196,31 @@ func (w *projectWatcher) watchDirTree(root string) error {
 			}
 			return nil
 		}
+		if hasWatchedExtension(name) {
+			hasSources = true
+		}
 		return nil
 	})
+	return hasSources, err
 }
 
 // isIgnoredDir reports whether a directory should be excluded from recursive watching.
 // Inputs:
 // - path: full directory path encountered during walk.
 // - name: base directory name for ignore-list checks.
-// - projectRoot: root path that allows leading-dot check exceptions.
+// - projectRoot: project root, which is never ignored whatever its name.
 // Outputs:
 // - bool: true when directory should be skipped from watch registration.
 func isIgnoredDir(path, name, projectRoot string) bool {
+	// The root is always watched, even when named like an ignored directory
+	// (e.g. a project checked out at ~/src/build or started from ./tmp).
+	if path == projectRoot {
+		return false
+	}
 	if _, skip := ignoredDirs[name]; skip {
 		return true
 	}
-	return strings.HasPrefix(name, ".") && path != projectRoot
+	return strings.HasPrefix(name, ".")
 }
 
 // isAlreadyWatchedErr reports whether an error indicates duplicate watch registration.
@@ -218,9 +243,16 @@ func isRelevantChange(event fsnotify.Event) bool {
 	if event.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) == 0 {
 		return false
 	}
+	return hasWatchedExtension(event.Name)
+}
 
-	name := filepath.Base(event.Name)
-	ext := strings.ToLower(filepath.Ext(name))
+// hasWatchedExtension reports whether a file name has a source/template extension that triggers reloads.
+// Inputs:
+// - name: file name or path to classify (extension match is case-insensitive).
+// Outputs:
+// - bool: true when the extension is in watchedExtensions.
+func hasWatchedExtension(name string) bool {
+	ext := strings.ToLower(filepath.Ext(filepath.Base(name)))
 	_, ok := watchedExtensions[ext]
 	return ok
 }

@@ -99,7 +99,7 @@ func readLoop(conn *bungo.WebSocketConn, ws *websocket.Conn, maxMessageSize int6
 func (e *HTTPEngine) createWebSocketHandler(srv *bungo.Server, route *bungo.WebSocketRoute, hub *bungo.WebSocketHub) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w, http.MethodGet)
 			return
 		}
 

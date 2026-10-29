@@ -23,7 +23,7 @@ func CompilePages(pages map[string]bungo.PageRoute, webDir string) (map[string]s
 	seen := make(map[string]struct{})
 	for _, page := range pages {
 		if page.View != "" {
-			outputBase := strings.TrimSuffix(fileutil.NormalizeSlashPath(page.View), filepath.Ext(page.View))
+			outputBase := viewOutputBase(page.View)
 			if _, ok := seen[outputBase]; ok {
 				continue
 			}
@@ -73,7 +73,7 @@ func CompilePages(pages map[string]bungo.PageRoute, webDir string) (map[string]s
 	// Map each page view path to its corresponding compiled JavaScript string.
 	for _, page := range pages {
 		if page.View != "" {
-			outputPath := strings.TrimSuffix(fileutil.NormalizeSlashPath(page.View), filepath.Ext(page.View)) + ".js"
+			outputPath := viewOutputBase(page.View) + ".js"
 			if js, ok := outputByPath[outputPath]; ok {
 				compiledMap[page.View] = js
 				optimizedMap[bungo.OptimizedAssetPath(page.View, js)] = js
@@ -82,6 +82,17 @@ func CompilePages(pages map[string]bungo.PageRoute, webDir string) (map[string]s
 	}
 
 	return compiledMap, optimizedMap, nil
+}
+
+// viewOutputBase returns the in-memory esbuild output path (without the added ".js") for a view.
+// The view's own extension is kept so `dash.jsx` and `dash.tsx` compile to separate bundles
+// instead of one silently overwriting the other.
+// Inputs:
+// - view: page route view path relative to `views/`.
+// Outputs:
+// - string: slash-style output base unique per distinct view file, e.g. `admin/dash.tsx`.
+func viewOutputBase(view string) string {
+	return strings.TrimPrefix(fileutil.NormalizeSlashPath(view), "/")
 }
 
 // CompilePagesFromStorage bundles page view entries using server storage and temporary extraction when needed.

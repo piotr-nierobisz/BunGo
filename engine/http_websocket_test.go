@@ -355,3 +355,188 @@ func TestWebSocket_plainGETRejected(t *testing.T) {
 		t.Fatalf("POST: %d", postResp.StatusCode)
 	}
 }
+
+func TestWebSocket_maxMessageSizeClosesWithTooBig(t *testing.T) {
+	dir := mustWebDir(t)
+	eng := NewHTTPEngine()
+	srv := bungo.NewServer(eng, dir)
+
+	received := make(chan string, 4)
+	disconnected := make(chan struct{})
+	srv.WebSocket(bungo.WebSocketRoute{
+		Path:           "/ws",
+		MaxMessageSize: 16,
+		OnMessage: func(conn *bungo.WebSocketConn, message []byte) {
+			received <- string(message)
+		},
+		OnDisconnect: func(conn *bungo.WebSocketConn) { close(disconnected) },
+	})
+
+	_, wsURL := startWebSocketTestServer(t, srv, eng)
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte("small")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-received:
+		if got != "small" {
+			t.Fatalf("OnMessage got %q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("frame within the limit was not delivered")
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(strings.Repeat("x", 64))); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, _, err := conn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseMessageTooBig) {
+		t.Fatalf("oversized frame: got %v, want close 1009 (message too big)", err)
+	}
+	select {
+	case <-disconnected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnDisconnect never fired after the oversized frame")
+	}
+	// OnMessage runs synchronously in the read loop, which has exited by now.
+	select {
+	case got := <-received:
+		t.Fatalf("oversized frame reached OnMessage (%d bytes)", len(got))
+	default:
+	}
+}
+
+func TestWebSocket_controlFramesNotDeliveredToOnMessage(t *testing.T) {
+	dir := mustWebDir(t)
+	eng := NewHTTPEngine()
+	srv := bungo.NewServer(eng, dir)
+
+	received := make(chan string, 4)
+	srv.WebSocket(bungo.WebSocketRoute{
+		Path: "/ws",
+		OnMessage: func(conn *bungo.WebSocketConn, message []byte) {
+			received <- string(message)
+			_ = conn.SendText("echo:" + string(message))
+		},
+	})
+
+	_, wsURL := startWebSocketTestServer(t, srv, eng)
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	// An unsolicited pong is a keepalive signal for the server's read deadline, not application data.
+	if err := conn.WriteControl(websocket.PongMessage, []byte("keepalive"), time.Now().Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, []byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if got := readText(t, conn); got != "echo:hello" {
+		t.Fatalf("echo after pong: %q", got)
+	}
+	if got := <-received; got != "hello" {
+		t.Fatalf("first OnMessage payload %q, want the data frame", got)
+	}
+	select {
+	case got := <-received:
+		t.Fatalf("control frame leaked into OnMessage: %q", got)
+	default:
+	}
+}
+
+func TestWebSocket_serverCloseSendsNormalClosure(t *testing.T) {
+	dir := mustWebDir(t)
+	eng := NewHTTPEngine()
+	srv := bungo.NewServer(eng, dir)
+
+	disconnected := make(chan struct{})
+	hub := srv.WebSocket(bungo.WebSocketRoute{
+		Path: "/ws",
+		OnMessage: func(conn *bungo.WebSocketConn, message []byte) {
+			if string(message) == "bye" {
+				_ = conn.Close()
+			}
+		},
+		OnDisconnect: func(conn *bungo.WebSocketConn) { close(disconnected) },
+	})
+
+	_, wsURL := startWebSocketTestServer(t, srv, eng)
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteMessage(websocket.TextMessage, []byte("bye")); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, _, err := conn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		t.Fatalf("server-initiated Close: got %v, want close 1000", err)
+	}
+	select {
+	case <-disconnected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnDisconnect never fired after server-initiated close")
+	}
+	for i := 0; i < 100 && hub.ConnectionCount() != 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if hub.ConnectionCount() != 0 {
+		t.Fatalf("connection count after close: %d", hub.ConnectionCount())
+	}
+}
+
+func TestWritePump_writeFailureClosesConnection(t *testing.T) {
+	serverSide := make(chan *websocket.Conn, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		serverSide <- ws
+	}))
+	defer ts.Close()
+
+	client, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	var ws *websocket.Conn
+	select {
+	case ws = <-serverSide:
+	case <-time.After(5 * time.Second):
+		t.Fatal("server never upgraded")
+	}
+	_ = ws.Close() // the transport is gone before the queued frame can be written
+
+	conn := bungo.NewWebSocketConn(nil)
+	if err := conn.SendText("lost"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		writePump(conn, ws)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("writePump did not return after a failed write")
+	}
+	select {
+	case <-conn.Done():
+	default:
+		t.Fatal("a failed write must close the BunGo connection so senders and the read loop stop")
+	}
+}

@@ -88,12 +88,14 @@ func (e *HTTPEngine) writeSecurityRejection(w http.ResponseWriter, resp *bungo.A
 // Inputs:
 // - srv: BunGo server registry containing security layers and API handler dependencies.
 // - route: API route configuration applied by this generated handler closure.
+// - allow: Allow header value listing every method registered for the route's path, sent with a 405.
 // Outputs:
 // - http.HandlerFunc: request handler that enforces method/origin/security and writes JSON responses.
-func (e *HTTPEngine) createAPIHandler(srv *bungo.Server, route *bungo.ApiRoute) http.HandlerFunc {
+func (e *HTTPEngine) createAPIHandler(srv *bungo.Server, route *bungo.ApiRoute, allow string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// ServeMux also routes HEAD to a "GET /path" pattern; only the registered method may run.
 		if r.Method != route.Method {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w, allow)
 			return
 		}
 
@@ -142,7 +144,7 @@ func (e *HTTPEngine) createAPIHandler(srv *bungo.Server, route *bungo.ApiRoute) 
 func (e *HTTPEngine) createPageHandler(srv *bungo.Server, route *bungo.PageRoute, statusCode int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			writeMethodNotAllowed(w, http.MethodGet)
 			return
 		}
 

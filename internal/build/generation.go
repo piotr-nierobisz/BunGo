@@ -3,12 +3,13 @@ package build
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
-	"github.com/piotr-nierobisz/BunGo/internal/fileutil"
 	"github.com/piotr-nierobisz/BunGo/internal/theme"
 )
 
@@ -45,7 +46,7 @@ func generateEmbeddedAssetsPackage(projectRoot, modulePath string, webDirs []dis
 		}
 
 		targetDir := filepath.Join(packageDir, filepath.FromSlash(webDir.embedPath))
-		if copyErr := fileutil.CopyFSTreeToDir(os.DirFS(sourceDir), ".", targetDir); copyErr != nil {
+		if copyErr := copyWebDirForEmbedding(sourceDir, targetDir); copyErr != nil {
 			cleanup()
 			return "", "", func() {}, copyErr
 		}
@@ -64,6 +65,41 @@ func generateEmbeddedAssetsPackage(projectRoot, modulePath string, webDirs []dis
 	return packageDir, importPath, cleanup, nil
 }
 
+// copyWebDirForEmbedding copies one web root into the generated package, deliberately leaving
+// out every dot-prefixed file and directory (.DS_Store, .env, .git, editor swap files, ...).
+// The generated go:embed directive uses the `all:` prefix so `_`-prefixed assets are embedded,
+// which also turns off go:embed's own dotfile exclusion: this copy step is therefore the one
+// place that keeps hidden files out of production binaries.
+// Inputs:
+// - sourceDir: web root directory on disk.
+// - targetDir: destination directory inside the generated package.
+// Outputs:
+// - error: non-nil when walking, reading, or writing fails.
+func copyWebDirForEmbedding(sourceDir string, targetDir string) error {
+	sourceFS := os.DirFS(sourceDir)
+	return fs.WalkDir(sourceFS, ".", func(currentPath string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if currentPath != "." && strings.HasPrefix(entry.Name(), ".") {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		targetPath := filepath.Join(targetDir, filepath.FromSlash(currentPath))
+		if entry.IsDir() {
+			return os.MkdirAll(targetPath, 0755)
+		}
+		data, err := fs.ReadFile(sourceFS, currentPath)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(targetPath, data, 0644)
+	})
+}
+
 // writeEmbedPackageFile writes the temporary package source that registers embedded assets at init time.
 // Inputs:
 // - generatedFilePath: file path where generated package source should be written.
@@ -79,8 +115,15 @@ func writeEmbedPackageFile(generatedFilePath string, assetDirs []string) error {
 	source.WriteString(")\n\n")
 
 	if len(assetDirs) > 0 {
+		// "all:" embeds `_`-prefixed files, which go:embed skips by default; dot-prefixed files
+		// were already left out by copyWebDirForEmbedding. Quoting keeps a web dir whose name
+		// contains spaces a single pattern.
+		patterns := make([]string, 0, len(assetDirs))
+		for _, assetDir := range assetDirs {
+			patterns = append(patterns, strconv.Quote("all:"+assetDir))
+		}
 		source.WriteString("//go:embed ")
-		source.WriteString(strings.Join(assetDirs, " "))
+		source.WriteString(strings.Join(patterns, " "))
 		source.WriteString("\n")
 	}
 

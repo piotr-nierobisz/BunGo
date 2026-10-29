@@ -51,6 +51,33 @@ func TestCopyFSTreeToDir_emptyRootDot(t *testing.T) {
 	}
 }
 
+func TestCopyFSTreeToDir_rootDotKeepsLeadingDots(t *testing.T) {
+	t.Parallel()
+	mapFS := fstest.MapFS{
+		".env":        &fstest.MapFile{Data: []byte("env")},
+		".git/config": &fstest.MapFile{Data: []byte("git")},
+		"views/.keep": &fstest.MapFile{Data: []byte("keep")},
+	}
+	dir := t.TempDir()
+	if err := CopyFSTreeToDir(mapFS, ".", dir); err != nil {
+		t.Fatalf("CopyFSTreeToDir: %v", err)
+	}
+	for rel, want := range map[string]string{".env": "env", ".git/config": "git", "views/.keep": "keep"} {
+		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		if string(b) != want {
+			t.Fatalf("%s content = %q, want %q", rel, b, want)
+		}
+	}
+	for _, stripped := range []string{"env", "git"} {
+		if _, err := os.Stat(filepath.Join(dir, stripped)); err == nil {
+			t.Fatalf("%s was written with its leading dot stripped", stripped)
+		}
+	}
+}
+
 func TestCopyFSTreeToDir_walkError(t *testing.T) {
 	t.Parallel()
 	bad := &errorFS{err: fs.ErrNotExist}

@@ -217,7 +217,8 @@ When you use **`engine.NewHTTPEngine()`** with a non-empty `webDir`, BunGo looks
 
 - **Convention:** Put assets you want served as-is under `<webDir>/static/`. Reference them from HTML templates with root-absolute paths, e.g. `<link rel="stylesheet" href="/static/styles.css" />` or `<img src="/static/img/hero.webp" alt="" />`. APIs can return the same paths in JSON for use in React (see `examples/http_hybrid`).
 - **Optional:** If `static/` is missing, nothing is mounted—no error. There is **no** static mount when `webDir` is `""` (API-only servers).
-- **Security layers:** Static requests are handled by `net/http`’s `FileServer` on `/static/` and **do not** run BunGo **Security** layers. Treat everything under `static/` as **public**. Keep secrets and user-specific files out of this tree; use authenticated API or page handlers instead.
+- **Security layers:** Static requests are served by BunGo's static handler on `/static/` (through `AssetStorage`, not `net/http`'s `FileServer`) and **do not** run BunGo **Security** layers. Treat everything under `static/` as **public**. Keep secrets and user-specific files out of this tree; use authenticated API or page handlers instead.
+- **Containment:** A request path that resolves outside `static/`—`..` segments in any spelling, including encoded (`..%2f`) and backslash (`..\`, `..%5c`) forms—answers `404`, so templates, view sources, and other files in `webDir` are never reachable through `/static/`. Non-`GET` requests answer `405` with `Allow: GET`.
 - **What not to put here:** Compiled React view bundles are produced from `web/views/` and injected into HTML by BunGo—you do not copy or hand-link those as separate files under `static/`.
 - **Other engines:** The automatic `/static/` mount and static aliases are implemented in the **HTTP/HTTPS** engines, so any [custom engine](./deployment.md) built on their shared handler inherits them. For CDN-style deployments, host long-lived assets on object storage or a CDN and use full URLs or a path your gateway maps to that bucket.
 
@@ -233,7 +234,7 @@ srv.StaticAlias("/sitemap.xml", "seo/sitemap.xml") // serves web/static/seo/site
 Rules, enforced fail-fast with a panic at registration time:
 
 - The alias URL must start with `/` and end with a **file extension that matches the target file's extension** (case-insensitive), so a URL never misrepresents the content type it serves. `/robots.txt → robots.txt` is valid; `/robots.txt → robots.html` is not.
-- The target file must already exist under `webDir/static` (memory-first, disk-fallback—same storage as `/static/`).
+- The target file must already exist under `webDir/static` (memory-first, disk-fallback—same storage as `/static/`), and the target path must stay inside `static/`: a target such as `../layouts/page.gohtml` is rejected even when that file exists. Backslash separators are normalized to `/`.
 - The alias must not use the reserved `/static/`, `/api/`, or `/_bungo/` prefixes.
 
 Aliases are exact-path `GET` routes. Like everything under `static/`, they bypass Security layers and are **public**; the file also remains reachable at its normal `/static/...` URL.

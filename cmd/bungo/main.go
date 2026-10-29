@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,6 +18,36 @@ import (
 )
 
 func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// run executes the BunGo CLI and returns the process exit code.
+// Inputs:
+// - args: command-line arguments without the program name.
+// - stdout: destination for regular command output and help.
+// - stderr: destination for the error message when a command fails.
+// Outputs:
+// - int: 0 on success, 1 when the command returned an error.
+func run(args []string, stdout, stderr io.Writer) int {
+	rootCmd := newRootCommand()
+	rootCmd.SetArgs(args)
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
+
+	if err := rootCmd.Execute(); err != nil {
+		// Cobra's own error printing is silenced, so this is the only place errors are reported.
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return 0
+}
+
+// newRootCommand creates the `bungo` root command with all subcommands registered.
+// Inputs:
+// - none
+// Outputs:
+// - *cobra.Command: root command that leaves error reporting to its caller.
+func newRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "bungo",
 		Short: theme.EN.CLI.RootShort,
@@ -31,18 +62,15 @@ func main() {
 			theme.EN.CLI.RootHelpParagraph1,
 			theme.EN.CLI.RootHelpParagraph2,
 		)),
-		SilenceUsage: true,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	rootCmd.AddCommand(newInitCommand())
 	rootCmd.AddCommand(newDevCommand())
 	rootCmd.AddCommand(newBuildCommand())
-
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	return rootCmd
 }
 
 func newInitCommand() *cobra.Command {
@@ -92,7 +120,7 @@ func newDevCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := ensureGoModExists(root); err != nil {
+			if err := ensureGoModExists(root, cmd.CommandPath()); err != nil {
 				return err
 			}
 
@@ -108,7 +136,7 @@ func newDevCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&entry, "entry", ".", theme.EN.CLI.FlagEntry)
+	cmd.Flags().StringVar(&entry, "entry", ".", theme.EN.CLI.FlagDevEntry)
 	return cmd
 }
 
@@ -131,7 +159,7 @@ func newBuildCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := ensureGoModExists(root); err != nil {
+			if err := ensureGoModExists(root, cmd.CommandPath()); err != nil {
 				return err
 			}
 
@@ -144,7 +172,7 @@ func newBuildCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&entry, "entry", ".", theme.EN.CLI.FlagEntry)
+	cmd.Flags().StringVar(&entry, "entry", ".", theme.EN.CLI.FlagBuildEntry)
 	cmd.Flags().StringVar(&outputPath, "output", "", theme.EN.CLI.FlagOutput)
 	cmd.Flags().StringVar(&webDir, "web-dir", "", theme.EN.CLI.FlagWebDir)
 	return cmd
@@ -153,13 +181,14 @@ func newBuildCommand() *cobra.Command {
 // ensureGoModExists validates that the current working directory contains a go.mod file.
 // Inputs:
 // - root: absolute directory expected to contain go.mod for BunGo CLI commands.
+// - commandPath: the command being run (for example `bungo build`), named in the hint.
 // Outputs:
 // - error: non-nil when go.mod is missing or stat fails for unexpected reasons.
-func ensureGoModExists(root string) error {
+func ensureGoModExists(root, commandPath string) error {
 	goModPath := filepath.Join(root, "go.mod")
 	if _, err := os.Stat(goModPath); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf(theme.EN.CLI.ErrGoModNotFoundFmt, root)
+			return fmt.Errorf(theme.EN.CLI.ErrGoModNotFoundFmt, root, commandPath)
 		}
 		return err
 	}

@@ -27,8 +27,12 @@ func CopyFSTreeToDir(sourceFS fs.FS, sourceRoot string, targetDir string) error 
 			return walkErr
 		}
 
-		relative := strings.TrimPrefix(currentPath, root)
-		relative = strings.TrimPrefix(relative, "/")
+		// With root ".", walked paths carry no root prefix; trimming "." would strip
+		// the leading dot from names such as ".env".
+		relative := currentPath
+		if root != "." {
+			relative = strings.TrimPrefix(strings.TrimPrefix(currentPath, root), "/")
+		}
 		targetPath := filepath.Join(targetDir, filepath.FromSlash(relative))
 
 		if entry.IsDir() {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/piotr-nierobisz/BunGo/internal/theme"
 )
@@ -402,6 +403,64 @@ declare function _bungoRender(component: any, elementId?: string): void;
 `
 )
 
+// windowsReservedNames are device names Windows refuses as file names, with or
+// without an extension. Go rejects them as module path elements.
+var windowsReservedNames = []string{
+	"CON", "PRN", "AUX", "NUL",
+	"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+	"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+}
+
+// moduleNameProblem reports why name cannot be used as a single-element Go
+// module path, or "" when it can. It mirrors the checks `go mod init` applies
+// to such a path (module.CheckImportPath in golang.org/x/mod).
+// Inputs:
+// - name: non-empty project name without path separators.
+// Outputs:
+// - string: human-readable reason for rejection, or "" when name is valid.
+func moduleNameProblem(name string) string {
+	msgs := theme.EN.Scaffold
+	if !utf8.ValidString(name) {
+		return msgs.ProjectNameInvalidUTF8
+	}
+	if name[0] == '-' {
+		return msgs.ProjectNameLeadingDash
+	}
+	if strings.Count(name, ".") == len(name) {
+		return msgs.ProjectNameOnlyDots
+	}
+	if name[len(name)-1] == '.' {
+		return msgs.ProjectNameTrailingDot
+	}
+	for _, r := range name {
+		if !moduleNameCharOK(r) {
+			return fmt.Sprintf(msgs.ProjectNameInvalidCharFmt, r)
+		}
+	}
+
+	short, _, _ := strings.Cut(name, ".")
+	for _, reserved := range windowsReservedNames {
+		if strings.EqualFold(reserved, short) {
+			return fmt.Sprintf(msgs.ProjectNameWindowsReservedFmt, short)
+		}
+	}
+	if tilde := strings.LastIndexByte(short, '~'); tilde >= 0 && tilde < len(short)-1 &&
+		strings.Trim(short[tilde+1:], "0123456789") == "" {
+		return msgs.ProjectNameWindowsShortName
+	}
+	return ""
+}
+
+// moduleNameCharOK reports whether r may appear in an import path element:
+// ASCII letters and digits plus - . _ ~ and +.
+func moduleNameCharOK(r rune) bool {
+	switch {
+	case 'a' <= r && r <= 'z', 'A' <= r && r <= 'Z', '0' <= r && r <= '9':
+		return true
+	}
+	return strings.ContainsRune("-._~+", r)
+}
+
 // InitProject scaffolds a BunGo showcase application.
 func InitProject(projectName string, useTypescript bool) (string, error) {
 	if strings.TrimSpace(projectName) == "" {
@@ -410,9 +469,15 @@ func InitProject(projectName string, useTypescript bool) (string, error) {
 	if strings.Contains(projectName, string(filepath.Separator)) || strings.Contains(projectName, "/") {
 		return "", fmt.Errorf(theme.EN.Scaffold.ErrProjectNameSingleDirFmt, projectName)
 	}
+	// The name becomes the go.mod module path, so reject anything `go mod init` would.
+	if reason := moduleNameProblem(projectName); reason != "" {
+		return "", fmt.Errorf(theme.EN.Scaffold.ErrProjectNameInvalidFmt, projectName, reason)
+	}
 
 	targetDir := filepath.Join(".", projectName)
-	if _, err := os.Stat(targetDir); err == nil {
+	// Lstat, not Stat: a dangling symlink is an existing entry too, and must
+	// get the same "already exists" error instead of a raw mkdir failure.
+	if _, err := os.Lstat(targetDir); err == nil {
 		return "", fmt.Errorf(theme.EN.Scaffold.ErrTargetExistsFmt, projectName)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf(theme.EN.Scaffold.ErrTargetAccessFmt, projectName, err)

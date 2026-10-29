@@ -43,7 +43,7 @@ Every connected client is a `*bungo.WebSocketConn`:
 | `SendJSON(any)` | Marshal and enqueue a JSON text frame. |
 | `Close()` | Politely close the connection (idempotent). |
 
-Connections are safe for concurrent use: `Send*` methods enqueue onto a per-connection buffer drained by a single writer goroutine, so handlers, hub broadcasts, and background jobs can all send without coordination. A connection whose buffer stays full (a consumer too slow to drain 256 pending frames) is **closed rather than allowed to block every publisher behind it**; its `Send*` calls return `bungo.ErrWebSocketClosed` from then on.
+Connections are safe for concurrent use: `Send*` methods enqueue onto a per-connection buffer drained by a single writer goroutine, so handlers, hub broadcasts, and background jobs can all send without coordination. A connection whose buffer stays full (a consumer too slow to drain 256 pending frames) is **closed rather than allowed to block every publisher behind it**. However a connection closes—`Close()`, the client going away, or the slow-consumer cutoff—every later `Send*` call returns `bungo.ErrWebSocketClosed` and queues nothing.
 
 ## The hub: broadcast and topics
 

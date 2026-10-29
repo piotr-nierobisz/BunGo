@@ -24,49 +24,41 @@ type Options struct {
 	Stderr io.Writer
 }
 
-// Run starts the BunGo dev loop with process restart, file watching, and websocket reload signaling.
+// Run starts the BunGo dev loop with process restart and file watching.
+// Browsers are told to reload by the restart itself: pages hold a live-reload
+// websocket on the app's own server (see internal/devreload), which closes when
+// the old process exits, and they refresh once the new process is serving.
 // Inputs:
 // - ctx: cancellation context used to stop dev mode and trigger graceful shutdown.
 // - projectRoot: project root directory used for file watching and `go run` execution.
 // - opts: optional dev runner configuration; nil uses defaults and discards process output.
 // Outputs:
-// - error: non-nil when startup, watcher, websocket server, or runtime loop handling fails.
+// - error: non-nil when startup, watcher, or runtime loop handling fails;
+// the app process is always stopped before Run returns.
 func Run(ctx context.Context, projectRoot string, opts *Options) error {
-	if opts == nil {
-		opts = &Options{}
+	// Work on a copy so defaults never leak into the caller's Options.
+	var cfg Options
+	if opts != nil {
+		cfg = *opts
 	}
-	if opts.RunTarget == "" {
-		opts.RunTarget = "."
+	if cfg.RunTarget == "" {
+		cfg.RunTarget = "."
 	}
 
-	runner := newProcessRunner(projectRoot, opts.RunTarget, opts.Stdout, opts.Stderr)
+	runner := newProcessRunner(projectRoot, cfg.RunTarget, cfg.Stdout, cfg.Stderr)
 
 	if err := runner.Restart(); err != nil {
 		return err
 	}
+	// Every return from here on must stop the app: it runs in its own process
+	// group, so it would otherwise outlive bungo and keep its port.
+	defer runner.Stop()
 
 	watcher, err := newProjectWatcher(projectRoot)
 	if err != nil {
 		return err
 	}
 	defer watcher.Close()
-
-	hub := newWSHub()
-	wsServer := startDevWebSocketServer(hub)
-	wsErrCh := make(chan error, 1)
-
-	go func() {
-		wsErrCh <- wsServer.ListenAndServe()
-	}()
-
-	// Give the websocket server a short window to fail fast if the port is in use.
-	select {
-	case err := <-wsErrCh:
-		if err != nil && err != httpServerClosed {
-			return err
-		}
-	case <-time.After(150 * time.Millisecond):
-	}
 
 	healthTicker := time.NewTicker(processHealthTick)
 	defer healthTicker.Stop()
@@ -87,17 +79,7 @@ func Run(ctx context.Context, projectRoot string, opts *Options) error {
 	for {
 		select {
 		case <-ctx.Done():
-			_ = runner.Stop()
-			hub.DisconnectAll()
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			wsServer.Shutdown(shutdownCtx) // nolint:errcheck
-			cancel()
 			return nil
-
-		case err := <-wsErrCh:
-			if err != nil && err != httpServerClosed {
-				return err
-			}
 
 		case err := <-watcher.Errors():
 			return err
@@ -120,15 +102,14 @@ func Run(ctx context.Context, projectRoot string, opts *Options) error {
 		case <-reloadReady:
 			reloadReady = nil
 			drainChangeEvents(watcher.Changes())
-			logChangeDetected(opts.Stdout)
-			hub.DisconnectAll()
+			logChangeDetected(cfg.Stdout)
 			if err := runner.Restart(); err != nil {
-				logRestartFailure(opts.Stderr, err)
+				logRestartFailure(cfg.Stderr, err)
 			}
 
 		case <-healthTicker.C:
 			if exited, err := runner.CheckExited(); exited {
-				logAppExit(opts.Stderr, err)
+				logAppExit(cfg.Stderr, err)
 			}
 		}
 	}

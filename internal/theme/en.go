@@ -21,10 +21,11 @@ type cliLocale struct {
 	DevLong             string
 	BuildShort          string
 	BuildLong           string
-	FlagEntry           string
+	FlagDevEntry        string
+	FlagBuildEntry      string
 	FlagOutput          string
 	FlagWebDir          string
-	ErrGoModNotFoundFmt string
+	ErrGoModNotFoundFmt string // args: project root, command path being run (e.g. "bungo build")
 }
 
 type buildLocale struct {
@@ -68,10 +69,20 @@ type devLocale struct {
 type scaffoldLocale struct {
 	ErrProjectNameRequired     string
 	ErrProjectNameSingleDirFmt string
+	ErrProjectNameInvalidFmt   string
 	ErrTargetExistsFmt         string
 	ErrTargetAccessFmt         string
 	ErrWritingFmt              string
 	GoModBodyFmt               string
+
+	// Reasons appended to ErrProjectNameInvalidFmt.
+	ProjectNameInvalidUTF8        string
+	ProjectNameLeadingDash        string
+	ProjectNameOnlyDots           string
+	ProjectNameTrailingDot        string
+	ProjectNameInvalidCharFmt     string
+	ProjectNameWindowsReservedFmt string
+	ProjectNameWindowsShortName   string
 }
 
 // localeBundle groups all English strings. Named type avoids "missing type in composite literal"
@@ -104,10 +115,11 @@ var EN = localeBundle{
 		DevLong:             "Starts a hot-reloading development server that watches your Go and React files, automatically rebuilding and refreshing the browser on changes.",
 		BuildShort:          "Build a portable BunGo binary",
 		BuildLong:           "Builds your Go entry package and auto-embeds BunGo web assets (layouts, views, and static) into the output binary.",
-		FlagEntry:           "Go entry target passed to `go run` (for example `.` or `./cmd/server`)",
+		FlagDevEntry:        "Go entry target passed to `go run` (for example `.` or `./cmd/server`)",
+		FlagBuildEntry:      "Go entry package or file to build (for example `.`, `./cmd/server` or `./cmd/server/main.go`)",
 		FlagOutput:          "Output binary path (default: ./bin/<entry-name>)",
 		FlagWebDir:          "Web asset root to embed manually; disables auto-discovery when set",
-		ErrGoModNotFoundFmt: "❌ Error: go.mod not found in %s. Please run `bungo dev` from the root of your project",
+		ErrGoModNotFoundFmt: "❌ Error: go.mod not found in %s. Please run `%s` from the root of your project",
 	},
 	Build: buildLocale{
 		SuccessFmt:    "✅ BunGo build complete: %s",
@@ -155,9 +167,18 @@ var EN = localeBundle{
 	Scaffold: scaffoldLocale{
 		ErrProjectNameRequired:     "project name is required",
 		ErrProjectNameSingleDirFmt: "project name must be a single directory name, got %q",
+		ErrProjectNameInvalidFmt:   "project name %q is not a valid Go module path: %s",
 		ErrTargetExistsFmt:         "target directory %q already exists",
 		ErrTargetAccessFmt:         "unable to access target directory %q: %w",
 		ErrWritingFmt:              "writing %s failed: %w",
 		GoModBodyFmt:               "module %s\n\ngo %s\n",
+
+		ProjectNameInvalidUTF8:        "it is not valid UTF-8",
+		ProjectNameLeadingDash:        "it must not start with a dash",
+		ProjectNameOnlyDots:           "it must not consist only of dots",
+		ProjectNameTrailingDot:        "it must not end with a dot",
+		ProjectNameInvalidCharFmt:     "character %q is not allowed (use ASCII letters, digits, '-', '_', '.', '~' or '+')",
+		ProjectNameWindowsReservedFmt: "%q is a reserved file name on Windows",
+		ProjectNameWindowsShortName:   "a trailing '~' followed by digits looks like a Windows short file name",
 	},
 }

@@ -475,7 +475,8 @@ Path parameters such as `/api/v1/users/:id` are NOT supported—use a fixed Path
 All callbacks are optional. *WebSocketConn: Request() (upgrade-time request with
 Internal populated by security layers), Send([]byte), SendText(string),
 SendJSON(any), Close(). Sends are buffered per connection and never block; a
-connection too slow to drain its buffer is closed. WebSocketHub: Broadcast/
+connection too slow to drain its buffer is closed, and every Send* on a closed
+connection returns bungo.ErrWebSocketClosed. WebSocketHub: Broadcast/
 BroadcastText/BroadcastJSON (every connection), Publish/PublishText/
 PublishJSON(topic, ...) (topic subscribers only), Subscribe/Unsubscribe(conn,
 topic), ConnectionCount().

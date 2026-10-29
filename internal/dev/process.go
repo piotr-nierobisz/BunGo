@@ -2,14 +2,21 @@ package dev
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"sync"
-	"syscall"
 	"time"
+
+	"github.com/piotr-nierobisz/BunGo/internal/devreload"
 )
+
+// stopGracePeriod is how long Stop waits for the app to exit after asking it
+// to stop before force-killing its process tree.
+const stopGracePeriod = 3 * time.Second
+
+// goRunInterruptLine is what `go run` prints to stderr when its child is interrupted.
+const goRunInterruptLine = "signal: interrupt"
 
 type processRunner struct {
 	projectRoot string
@@ -43,26 +50,24 @@ func newProcessRunner(projectRoot, runTarget string, stdout, stderr io.Writer) *
 // Inputs:
 // - none
 // Outputs:
-// - error: non-nil when stop or start sequence fails.
+// - error: non-nil when the new process cannot be started.
 func (r *processRunner) Restart() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if err := r.stopLocked(); err != nil {
-		return err
-	}
+	r.stopLocked()
 	return r.startLocked()
 }
 
-// Stop terminates the currently running process if one exists.
+// Stop terminates the currently running process tree if one exists.
 // Inputs:
 // - none
 // Outputs:
-// - error: non-nil when process termination fails.
-func (r *processRunner) Stop() error {
+// - none
+func (r *processRunner) Stop() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.stopLocked()
+	r.stopLocked()
 }
 
 // CheckExited reports whether the currently running process has exited.
@@ -98,9 +103,10 @@ func (r *processRunner) startLocked() error {
 	cmd := exec.Command("go", "run", r.runTarget)
 	cmd.Dir = r.projectRoot
 	cmd.Stdout = r.stdout
-	cmd.Stderr = newLineSuppressingWriter(r.stderr, "signal: interrupt")
-	cmd.Env = append(os.Environ(), fmt.Sprintf("%s=1", "BUNGO_DEV_ENABLED"))
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	stderr := newLineSuppressingWriter(r.stderr, goRunInterruptLine)
+	cmd.Stderr = stderr
+	cmd.Env = append(os.Environ(), devreload.EnvVar+"=1")
+	configureProcessTree(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return err
@@ -108,7 +114,12 @@ func (r *processRunner) startLocked() error {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- cmd.Wait()
+		err := cmd.Wait()
+		// Wait has finished copying output, so a final unterminated line can be flushed.
+		if f, ok := stderr.(interface{ Flush() error }); ok {
+			_ = f.Flush()
+		}
+		done <- err
 	}()
 
 	r.cmd = cmd
@@ -116,51 +127,28 @@ func (r *processRunner) startLocked() error {
 	return nil
 }
 
-// stopLocked attempts graceful process-group stop and escalates to force kill on timeout.
+// stopLocked asks the app's process tree to stop and force-kills it after stopGracePeriod.
 // Inputs:
 // - none
 // Outputs:
-// - error: non-nil when termination signaling fails in unrecoverable paths.
-func (r *processRunner) stopLocked() error {
-	if r.cmd == nil {
-		return nil
+// - none
+func (r *processRunner) stopLocked() {
+	if r.cmd == nil || r.waitDone == nil {
+		return
 	}
 
-	done := r.waitDone
-	if done == nil {
-		return nil
-	}
-
-	pid := r.cmd.Process.Pid
-	if err := signalProcessGroup(pid, syscall.SIGINT); err != nil {
-		_ = r.cmd.Process.Signal(os.Interrupt)
-	}
+	proc := r.cmd.Process
+	interruptProcessTree(proc)
 
 	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		_ = signalProcessGroup(pid, syscall.SIGKILL)
-		_ = r.cmd.Process.Kill()
-		<-done
+	case <-r.waitDone:
+	case <-time.After(stopGracePeriod):
+		killProcessTree(proc)
+		<-r.waitDone
 	}
 
 	r.cmd = nil
 	r.waitDone = nil
-	return nil
-}
-
-// signalProcessGroup sends a Unix signal to the process group identified by pid.
-// Inputs:
-// - pid: process identifier whose process group will receive the signal.
-// - signal: OS signal delivered to the process group.
-// Outputs:
-// - error: non-nil when pid is invalid or signal delivery fails.
-func signalProcessGroup(pid int, signal syscall.Signal) error {
-	if pid <= 0 {
-		return fmt.Errorf("invalid process id: %d", pid)
-	}
-	// Negative pid targets the process group.
-	return syscall.Kill(-pid, signal)
 }
 
 type lineSuppressingWriter struct {
@@ -218,4 +206,26 @@ func (w *lineSuppressingWriter) Write(p []byte) (int, error) {
 	}
 
 	return len(p), nil
+}
+
+// Flush forwards a final line that was not newline-terminated, completing it
+// with a newline unless it is the suppressed line.
+// Inputs:
+// - none
+// Outputs:
+// - error: non-nil when writing the flushed line to the destination fails.
+func (w *lineSuppressingWriter) Flush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if len(w.pending) == 0 {
+		return nil
+	}
+	line := w.pending
+	w.pending = nil
+	if string(line) == w.suppressLine {
+		return nil
+	}
+	_, err := w.dst.Write(append(line, '\n'))
+	return err
 }

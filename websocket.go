@@ -162,11 +162,17 @@ func (c *WebSocketConn) Done() <-chan struct{} {
 // Outputs:
 // - error: ErrWebSocketClosed when the connection is closed, or when a full buffer forced it closed.
 func (c *WebSocketConn) enqueue(frame WebSocketFrame) error {
+	// Check closed on its own first: while the buffer has room, a select offering both
+	// the send and the closed case would find both ready and pick one at random,
+	// silently accepting frames for a connection nobody will ever drain.
+	select {
+	case <-c.closed:
+		return ErrWebSocketClosed
+	default:
+	}
 	select {
 	case c.outbound <- frame:
 		return nil
-	case <-c.closed:
-		return ErrWebSocketClosed
 	default:
 		// Slow consumer: closing this connection beats blocking every publisher behind it.
 		_ = c.Close()

@@ -48,6 +48,8 @@ function Chart() {
 }
 ```
 
+React itself is never downloaded. URLs whose package is exactly `react` or `react-dom` (esm.sh, unpkg, jsDelivr, esm.run, JSPM and Skypack layouts) resolve to the embedded runtime: the main module, `react/jsx-runtime`, `react/jsx-dev-runtime`, and `react-dom`/`react-dom/client`. Other subpaths such as `react-dom/server`, and files that merely sit in a `react` folder on some host, are fetched like any other module. Relative imports inside a remote module resolve against the URL it was finally served from, so CDN redirects (for example an unversioned unpkg URL pinning to a release) work. Cached modules are kept until you delete the cache directory.
+
 ### Importing Local Components
 Just like in a traditional Node.js environment, you can break down your user interface into smaller, reusable components. Create a directory such as `web/components/` (the `bungo init` scaffold does not add this folder—you add it when you need shared components), export your modules, and import them from view entry files using relative paths.
 
