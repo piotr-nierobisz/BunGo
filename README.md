@@ -1,6 +1,13 @@
 ![BunGo logo](./docs/assets/header.png)
 
 # BunGo (Bundler 4 Go)
+
+[![CI](https://github.com/piotr-nierobisz/BunGo/actions/workflows/ci.yml/badge.svg)](https://github.com/piotr-nierobisz/BunGo/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/piotr-nierobisz/BunGo/graph/badge.svg)](https://codecov.io/gh/piotr-nierobisz/BunGo)
+[![Go Reference](https://pkg.go.dev/badge/github.com/piotr-nierobisz/BunGo.svg)](https://pkg.go.dev/github.com/piotr-nierobisz/BunGo)
+[![Go Report Card](https://goreportcard.com/badge/github.com/piotr-nierobisz/BunGo)](https://goreportcard.com/report/github.com/piotr-nierobisz/BunGo)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 **BunGo** is a high-performance, fullstack, and idiomatic Go web framework designed to seamlessly bridge backend Go logic with frontend React (JSX) views. It eliminates the need for Node.js, `npm`, `package.json`, and complex external build pipelines by embedding everything you need right into your Go binary.
 
 If you love the simplicity of Go backends but want the rich interactivity of React without the headache of managing a separate frontend ecosystem, BunGo is the framework for you.
